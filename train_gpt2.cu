@@ -516,68 +516,7 @@ void gpt2_build_from_checkpoint(GPT2 *model, const char* checkpoint_path, bool w
     cudaCheck(cudaDeviceSynchronize());
 }
 
-void gpt2_set_hyperparameters(GPT2Config* config, const char* depth_str) {
-    int depth = atoi(depth_str);
-    assert(depth > 0); // atoi returns 0 if not a number
-    int channels, num_heads;
-    if      (depth == 6)  { channels = 384; num_heads = 6; }   // (unofficial) gpt2-tiny (30M)
-    else if (depth == 12) { channels = 768; num_heads = 12; }  // gpt2 (124M)
-    else if (depth == 24) { channels = 1024; num_heads = 16; } // gpt2-medium (350M)
-    else if (depth == 36) { channels = 1280; num_heads = 20; } // gpt2-large (774M)
-    else if (depth == 48) { channels = 1600; num_heads = 25; } // gpt2-xl (1558M)
-    else if (depth == 60) { channels = 1920; num_heads = 30; } // (unofficial) 2.7B
-    else if (depth == 72) { channels = 2880; num_heads = 30; } // (unofficial) 7.3B
-    else if (depth == 84) { channels = 3456; num_heads = 36; } // (unofficial) 12.2B
-    else { fprintf(stderr, "Unsupported GPT-2 depth: %d\n", depth); exit(EXIT_FAILURE); }
-    config->num_layers = depth;
-    config->channels = channels;
-    config->num_heads = num_heads;
-    config->max_seq_len = 1024;
-}
-
-void gpt3_set_hyperparameters(GPT2Config* config, const char* channels_str) {
-    // we use channels instead of depth for GPT-3 because GPT-3 model depths are not one-to-one
-    // note that our models are not necessarily identical to GPT-3 because
-    // we use dense attention, not the alternating dense/banded attention of GPT-3
-    int channels = atoi(channels_str);
-    assert(channels > 0); // atoi returns 0 if not a number
-    int depth, head_size;
-    if      (channels == 384)   { depth = 6;  head_size = 64; }  // (unofficial) gpt3-tiny (31M)
-    else if (channels == 768)   { depth = 12; head_size = 64; }  // gpt3-small (125M)
-    else if (channels == 1024)  { depth = 24; head_size = 64; }  // gpt3-medium (350M)
-    else if (channels == 1536)  { depth = 24; head_size = 96; }  // gpt3-large (760M)
-    else if (channels == 2048)  { depth = 24; head_size = 128; } // gpt3-xl (1.3B) [heads fixed]
-    else if (channels == 2560)  { depth = 32; head_size = 80; }  // gpt3-2.7B
-    else if (channels == 4096)  { depth = 32; head_size = 128; } // gpt3-6.7B
-    else if (channels == 5140)  { depth = 40; head_size = 128; } // gpt3-13B
-    else if (channels == 12288) { depth = 96; head_size = 128; } // gpt3 (175B)
-    else { fprintf(stderr, "Unsupported GPT-3 channels: %d\n", channels); exit(EXIT_FAILURE); }
-    assert(channels % head_size == 0);
-    config->num_layers = depth;
-    config->channels = channels;
-    config->num_heads = channels / head_size;
-    config->max_seq_len = 2048; // NOTE: GPT-3 uses context length of 2048 tokens, up from 1024 in GPT-2
-}
-
-void gpt_build_from_descriptor(GPT2 *model, const char* descriptor) {
-    // The model descriptor can be:
-    // - legacy format "dX", where X is number, e.g. "d12". This creates GPT-2 model with 12 layers.
-    // - new explicit format "gpt2:dX", same as above, e.g. "gpt2:d48" for GPT-2 with 48 layers.
-    // - "gpt3:cX", where X is now the channel count, e.g. "gpt3:c768" is the smallest GPT-3 model.
-
-    // check the valid prexies and dispatch to the right setup function
-    assert(descriptor != NULL);
-    size_t len = strlen(descriptor);
-    if (len > 1 && descriptor[0] == 'd') {
-        gpt2_set_hyperparameters(&model->config, descriptor + 1); // pass along the depth str without the 'd'
-    } else if (len > 6 && strncmp(descriptor, "gpt2:d", 6) == 0) {
-        gpt2_set_hyperparameters(&model->config, descriptor + 6); // pass along the depth str without the 'gpt2:d'
-    } else if (len > 6 && strncmp(descriptor, "gpt3:c", 6) == 0) {
-        gpt3_set_hyperparameters(&model->config, descriptor + 6); // pass along the channels str without the 'gpt3:c'
-    } else {
-        fprintf(stderr, "Unsupported model descriptor: %s\n", descriptor); exit(EXIT_FAILURE);
-    }
-
+void gpt_build(GPT2 *model){
     // both GPT-2 and GPT-3 use the same tokenizer with 50257 tokens
     model->config.vocab_size = 50257;
     model->config.padded_vocab_size = 50304; // padded to 128 for CUDA kernel efficiency
@@ -1375,6 +1314,10 @@ void error_usage() {
     fprintf(stderr, "  -nk <int>   max number of checkpoints to keep in the directory, removing old ones (0 = disable, default)\n");
     fprintf(stderr, "  -nm <int>   every how many step checkpoints are considered major? major checkpoints never get deleted.\n");
     fprintf(stderr, "  -y <int>    resume optimization found inside output log dir? (0=restart/overwrite, 1=resume/append)\n");
+    // model definition
+    fprintf(stderr, "  -1d <int>   model depth (default = 6)\n");
+    fprintf(stderr, "  -1c <int>   model channels (default = 384)\n");
+    fprintf(stderr, "  -1h <int>   model number of heads (default = 6)\n");
     // token layout for each step of the optimization
     fprintf(stderr, "  -b <int>    (per-GPU, micro) batch size B (default = 4)\n");
     fprintf(stderr, "  -t <int>    sequence length T (default = 1024)\n");
@@ -1456,6 +1399,11 @@ int main(int argc, char *argv[]) {
     char nccl_init_method[256] = "mpi";  // "tcp" or "fs" or "mpi"
     char server_ip[256] = "";  // used if init_method set to "tcp" -> set to your server ip address
     char fs_path[256] = "";  // used if init_method set to "fs" -> set to a shared filesystem path
+
+    int depth = 6;
+    int num_channel = 384;
+    int num_heads = 6;
+
     for (int i = 1; i < argc; i+=2) {
         if (i + 1 >= argc) { error_usage(); } // must have arg after flag
         if (argv[i][0] != '-') { error_usage(); } // must start with dash
@@ -1488,6 +1436,9 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 'r') { recompute = atoi(argv[i+1]); }
         else if (argv[i][1] == 'h') { hellaswag_eval = atoi(argv[i+1]); }
         else if (argv[i][1] == 'k') { lr_scheduler_type = argv[i+1]; }
+        else if (argv[i][1] == '1' && argv[i][2] == 'd') { depth = atoi(argv[i+1]); }
+        else if (argv[i][1] == '1' && argv[i][2] == 'c') { num_channel = atoi(argv[i+1]); }
+        else if (argv[i][1] == '1' && argv[i][2] == 'h') { num_heads = atoi(argv[i+1]); }
         else if (argv[i][1] == 'p' && argv[i][2] == 'i') { strcpy(nccl_init_method, argv[i+1]); }
         else if (argv[i][1] == 'p' && argv[i][2] == 'f') { strcpy(fs_path, argv[i+1]); }
         else if (argv[i][1] == 'p' && argv[i][2] == 's') { strcpy(server_ip, argv[i+1]); }
@@ -1580,9 +1531,12 @@ int main(int argc, char *argv[]) {
         // otherwise, if this is a .bin file, we assume it's a model, let's init from it
         gpt2_build_from_checkpoint(&model, load_filename);
     } else {
-        // if it's not .bin, it could be a "special descriptor". This descriptor is used to
-        // construct GPT-2 / GPT-3 models in a convenient format. See the function for docs.
-        gpt_build_from_descriptor(&model, load_filename);
+        model.config.max_seq_len = 1024;
+        model.config.channels = num_channel;
+        model.config.num_heads = num_heads;
+        model.config.num_layers = depth;
+
+        gpt_build(&model);
     }
 
     model.use_master_weights = use_master_weights;
