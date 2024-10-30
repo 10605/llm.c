@@ -475,7 +475,6 @@ void gpt2_build_from_checkpoint(GPT2 *model, const char* checkpoint_path, bool w
         // 3 = fp32, padded vocab
         // 5 = bf16, padded vocab, layernorms also in bf16
         fprintf(stderr, "Bad version in model file\n");
-        fprintf(stderr, "---> HINT: try to re-run `python train_gpt2.py`\n");
         exit(EXIT_FAILURE);
     }
 
@@ -1475,7 +1474,7 @@ int main(int argc, char *argv[]) {
     assert(total_batch_size % tokens_per_fwdbwd == 0);
     int grad_accum_steps = total_batch_size / tokens_per_fwdbwd;
     // if we're only overfitting a single batch for debugging, let's overfit the first batch
-    // from val instead of train split, because val is smaller and faster. (train_gpt2.py does the same)
+    // from val instead of train split, because val is smaller and faster.
     if (overfit_single_batch == 1) { train_data_pattern = val_data_pattern; }
     printf0("+-----------------------+----------------------------------------------------+\n");
     printf0("| Parameter             | Value                                              |\n");
@@ -1602,7 +1601,6 @@ int main(int argc, char *argv[]) {
     // prints outside of pretty table to here and below
     if (!hellaswag_available) {
         printf0("HellaSwag eval not found at %s, skipping its evaluation\n", hellaswag_path);
-        printf0("You can run `python dev/data/hellaswag.py` to export and use it with `-h 1`.\n");
     }
     // more prints related to allocations from gpt2_build_from_checkpoint down here to not mess up our table above
     printf0("num_parameters: %zu => bytes: %zu\n", model.num_parameters, model.num_parameters_bytes);

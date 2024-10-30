@@ -1123,7 +1123,6 @@ void gpt2_build_from_checkpoint(GPT2 *model, const char* checkpoint_path) {
     if (model_header[1] != 3) {
         // was bumped from 1 -> 3 to incorporate the padded vocab size
         fprintf(stderr, "Bad version in model file\n");
-        fprintf(stderr, "---> HINT: try to re-run `python train_gpt2.py`\n");
         exit(EXIT_FAILURE);
     }
 
