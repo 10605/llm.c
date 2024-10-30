@@ -23,7 +23,7 @@ NVCC_LDLIBS =
 NCLL_INCUDES =
 NVCC_CUDNN =
 # By default we don't build with cudnn because it blows up compile time from a few seconds to ~minute
-USE_CUDNN ?= 0
+USE_CUDNN ?= 1
 
 # We will place .o files in the `build` directory (create it if it doesn't exist)
 BUILD_DIR = build
