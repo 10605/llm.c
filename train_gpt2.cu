@@ -1305,8 +1305,10 @@ void error_usage() {
     fprintf(stderr, "Usage:   ./train_gpt2cu [options]\n");
     fprintf(stderr, "Options:\n");
     // file system input / output
-    fprintf(stderr, "  -i <string> train data filename pattern (default = dev/data/tinyshakespeare/tiny_shakespeare_train.bin)\n");
-    fprintf(stderr, "  -j <string> val data filename pattern (default = dev/data/tinyshakespeare/tiny_shakespeare_val.bin)\n");
+    fprintf(stderr, "  -id <string> train data filename pattern (default = data/fineweb_train_*.bin)\n");
+    fprintf(stderr, "  -iv <string> val data filename pattern (default = data/fineweb_val_*.bin)\n");
+    fprintf(stderr, "  -ih <string> val data filename pattern (default = data/gpt2_tokenizer.bin)\n");
+    fprintf(stderr, "  -ih <string> val data filename pattern (default = data/hellaswag_val.bin)\n");
     fprintf(stderr, "  -e <string> input .bin filename or descriptor, see code comments as docs. (default = gpt2_124M_bf16.bin)\n");
     fprintf(stderr, "  -o <string> output log dir (default = NULL, no logging)\n");
     fprintf(stderr, "  -lg <int>   log gpu info every x steps (default = -1; disabled)\n");
@@ -1361,8 +1363,10 @@ void error_usage() {
 // main training loop
 int main(int argc, char *argv[]) {
     // read in the (optional) command line arguments
-    const char* train_data_pattern = "dev/data/tinyshakespeare/tiny_shakespeare_train.bin";
-    const char* val_data_pattern = "dev/data/tinyshakespeare/tiny_shakespeare_val.bin";
+    const char* train_data_pattern = "data/fineweb_train_*.bin";
+    const char* val_data_pattern = "data/fineweb_val_*.bin";
+    const char* tokenizer_path = "data/gpt2_tokenizer.bin";
+    const char* hellaswag_path = "data/hellaswag_val.bin";
     const char* load_filename = "gpt2_124M_bf16.bin"; // bf16 weights of the model
     const char* lr_scheduler_type = "cosine";
     const char* output_log_dir = NULL;
@@ -1409,8 +1413,10 @@ int main(int argc, char *argv[]) {
         if (argv[i][0] != '-') { error_usage(); } // must start with dash
         if (!(strlen(argv[i]) == 2 || strlen(argv[i]) == 3)) { error_usage(); } // must be -x[y] (one dash, one or two letters)
         // read in the args
-        if (argv[i][1] == 'i') { train_data_pattern = argv[i+1]; }
-        else if (argv[i][1] == 'j') { val_data_pattern = argv[i+1]; }
+        if (argv[i][1] == 'i' && argv[i][2] == 'd' ) { train_data_pattern = argv[i+1]; }
+        else if (argv[i][1] == 'i' && argv[i][2] == 'v' ) { val_data_pattern = argv[i+1]; }
+        else if (argv[i][1] == 'i' && argv[i][2] == 't' ) { tokenizer_path = argv[i+1]; }
+        else if (argv[i][1] == 'i' && argv[i][2] == 'h' ) { hellaswag_path = argv[i+1]; }
         else if (argv[i][1] == 'e') { load_filename = argv[i+1]; }
         else if (argv[i][1] == 'o') { output_log_dir = argv[i+1]; }
         else if (argv[i][1] == 'n' && argv[i][2] == '\0') { checkpoint_every = atoi(argv[i+1]); }
@@ -1579,7 +1585,6 @@ int main(int argc, char *argv[]) {
 
     // build an EvalLoader for HellaSwag
     EvalLoader eval_loader;
-    const char* hellaswag_path = "dev/data/hellaswag/hellaswag_val.bin";
     const bool hellaswag_available = access(hellaswag_path, F_OK) == 0;
     const bool run_hellaswag = hellaswag_eval && hellaswag_available;
     if (run_hellaswag) {
@@ -1614,7 +1619,7 @@ int main(int argc, char *argv[]) {
 
     // set up the Tokenizer
     Tokenizer tokenizer;
-    tokenizer_init(&tokenizer, "gpt2_tokenizer.bin");
+    tokenizer_init(&tokenizer, tokenizer_path);
 
     // set up learning rate scheduler
     LearningRateScheduler lr_scheduler;
