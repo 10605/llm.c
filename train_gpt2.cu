@@ -1306,8 +1306,8 @@ void error_usage() {
     // file system input / output
     fprintf(stderr, "  -id <string> train data filename pattern (default = data/fineweb_train_*.bin)\n");
     fprintf(stderr, "  -iv <string> val data filename pattern (default = data/fineweb_val_*.bin)\n");
-    fprintf(stderr, "  -ih <string> val data filename pattern (default = data/gpt2_tokenizer.bin)\n");
-    fprintf(stderr, "  -ih <string> val data filename pattern (default = data/hellaswag_val.bin)\n");
+    fprintf(stderr, "  -it <string> tokenizer file path (default = data/gpt2_tokenizer.bin)\n");
+    fprintf(stderr, "  -ih <string> hellaswag file path (default = data/hellaswag_val.bin)\n");
     fprintf(stderr, "  -e <string> input .bin filename or descriptor, see code comments as docs. (default = gpt2_124M_bf16.bin)\n");
     fprintf(stderr, "  -o <string> output log dir (default = NULL, no logging)\n");
     fprintf(stderr, "  -lg <int>   log gpu info every x steps (default = -1; disabled)\n");
