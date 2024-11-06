@@ -40,7 +40,7 @@ bucket_name="10605chrisbucket"
 
 echo "Uploading to S3 Bucket"
 
-python3 upload_to_s3.py "$output_dir" "$bucket_name" "$cluster_name" "logfiles"
+python3 upload_to_s3.py "$bucket_name" "$output_dir" "$cluster_name" "logfiles"
 
 # ------------------------------- Experiment 2 --------------------------------
 
