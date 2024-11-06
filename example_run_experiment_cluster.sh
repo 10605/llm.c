@@ -52,7 +52,7 @@ for lr in "${learning_rates[@]}"; do
 
     echo "Uploading to S3 Bucket"
 
-    python3 upload_to_s3.py "$output_dir" "$bucket_name" "$cluster_name" "experiment_${experiment_count}"
+    python3 upload_to_s3.py "$bucket_name" "$output_dir" "$cluster_name" "experiment_${experiment_count}"
 
 # ------------------------------- Experiment 2 --------------------------------
 
@@ -106,7 +106,7 @@ for lr in "${learning_rates[@]}"; do
 
     echo "Uploading to S3 Bucket"
 
-    python3 upload_to_s3.py "$output_dir" "$bucket_name" "$cluster_name" "experiment_${experiment_count}"
+    python3 upload_to_s3.py "$bucket_name" "$output_dir" "$cluster_name" "experiment_${experiment_count}"
 
 
 # ------------------------------- Initiate Shutdown --------------------------------
