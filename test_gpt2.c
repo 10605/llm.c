@@ -56,7 +56,6 @@ int main(int argc, char *argv[]) {
     if (state_header[0] != 20240327) { printf("Bad magic state file\n"); return 1; }
     if (state_header[1] != 2) {
         printf("Bad version in state file\n");
-        printf("---> HINT: try to re-run `python train_gpt2.py`\n");
         return 1;
     }
     int B = state_header[2]; // batch size, e.g. 4

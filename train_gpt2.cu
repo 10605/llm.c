@@ -475,7 +475,6 @@ void gpt2_build_from_checkpoint(GPT2 *model, const char* checkpoint_path, bool w
         // 3 = fp32, padded vocab
         // 5 = bf16, padded vocab, layernorms also in bf16
         fprintf(stderr, "Bad version in model file\n");
-        fprintf(stderr, "---> HINT: try to re-run `python train_gpt2.py`\n");
         exit(EXIT_FAILURE);
     }
 
@@ -1305,8 +1304,10 @@ void error_usage() {
     fprintf(stderr, "Usage:   ./train_gpt2cu [options]\n");
     fprintf(stderr, "Options:\n");
     // file system input / output
-    fprintf(stderr, "  -i <string> train data filename pattern (default = dev/data/tinyshakespeare/tiny_shakespeare_train.bin)\n");
-    fprintf(stderr, "  -j <string> val data filename pattern (default = dev/data/tinyshakespeare/tiny_shakespeare_val.bin)\n");
+    fprintf(stderr, "  -id <string> train data filename pattern (default = data/fineweb_train_*.bin)\n");
+    fprintf(stderr, "  -iv <string> val data filename pattern (default = data/fineweb_val_*.bin)\n");
+    fprintf(stderr, "  -it <string> tokenizer file path (default = data/gpt2_tokenizer.bin)\n");
+    fprintf(stderr, "  -ih <string> hellaswag file path (default = data/hellaswag_val.bin)\n");
     fprintf(stderr, "  -e <string> input .bin filename or descriptor, see code comments as docs. (default = gpt2_124M_bf16.bin)\n");
     fprintf(stderr, "  -o <string> output log dir (default = NULL, no logging)\n");
     fprintf(stderr, "  -lg <int>   log gpu info every x steps (default = -1; disabled)\n");
@@ -1361,28 +1362,30 @@ void error_usage() {
 // main training loop
 int main(int argc, char *argv[]) {
     // read in the (optional) command line arguments
-    const char* train_data_pattern = "dev/data/tinyshakespeare/tiny_shakespeare_train.bin";
-    const char* val_data_pattern = "dev/data/tinyshakespeare/tiny_shakespeare_val.bin";
-    const char* load_filename = "gpt2_124M_bf16.bin"; // bf16 weights of the model
+    const char* train_data_pattern = "data/fineweb_train_*.bin";
+    const char* val_data_pattern = "data/fineweb_val_*.bin";
+    const char* tokenizer_path = "data/gpt2_tokenizer.bin";
+    const char* hellaswag_path = "data/hellaswag_val.bin";
+    const char* load_filename = nullptr;
     const char* lr_scheduler_type = "cosine";
-    const char* output_log_dir = NULL;
-    int checkpoint_every = 0; // write checkpoints every how many steps?
+    const char* output_log_dir = "log";
+    int checkpoint_every = 1000; // write checkpoints every how many steps?
     int checkpoints_keep = 0; // how long checkpoint history do we keep? (in units of checkpoints)
     int major_checkpoint_every = 0; // major checkpoints never get deleted when maintaining history
     int resume = 0; // resume the optimization, if one is found inside output_log_dir?
-    int B = 4; // batch size
+    int B = 64; // batch size
     int T = 1024; // sequence length max
-    int total_batch_size = -1; // will be calculated down below later, if not provided
-    float learning_rate = 3e-4f;
+    int total_batch_size = 524288; // will be calculated down below later, if not provided
+    float learning_rate = 6e-4f;
     int log_gpu_every = -1;
-    int warmup_iterations = 0;
-    float final_learning_rate_frac = 1.0f; // final fraction of learning rate, at end of training
-    float weight_decay = 0.0f;
+    int warmup_iterations = 700;
+    float final_learning_rate_frac = 0.0f; // final fraction of learning rate, at end of training
+    float weight_decay = 0.1f;
     float skip_update_lossz = 0.0f; // skip update if loss goes above this in zscore
     float skip_update_gradz = 0.0f; // skip update if grad_norm goes above this in zscore
-    int val_loss_every = 20; // every how many steps do we eval validation loss?
+    int val_loss_every = 250; // every how many steps do we eval validation loss?
     int val_max_steps = 20; // how many batches max do we eval for validation loss?
-    int sample_every = 20; // every how many steps to do inference?
+    int sample_every = 20000; // every how many steps to do inference?
     int genT = 64; // number of steps of inference we will do
     int overfit_single_batch = 0; // useful for debugging, 1 = only load a single data batch once
     int max_steps = -1;
@@ -1390,8 +1393,8 @@ int main(int argc, char *argv[]) {
     int use_master_weights = 1;
     int gelu_fusion = -1; // 0 = none, 1 = forward, 2 = forward+backward (-1 => per-GPU default)
     int recompute = 1; // recompute during backward setting, 0 = none, 1 = recompute gelu
-    int zero_stage = 0; // Zero Optimization Stage for Multi-GPU training
-    int hellaswag_eval = 0;
+    int zero_stage = 1; // Zero Optimization Stage for Multi-GPU training
+    int hellaswag_eval = 1;
     // multi-node settings
     int num_processes = 1;  // this should be set by the slurm environment
     int process_rank = 0;  // this should be set by the slurm environment
@@ -1409,8 +1412,10 @@ int main(int argc, char *argv[]) {
         if (argv[i][0] != '-') { error_usage(); } // must start with dash
         if (!(strlen(argv[i]) == 2 || strlen(argv[i]) == 3)) { error_usage(); } // must be -x[y] (one dash, one or two letters)
         // read in the args
-        if (argv[i][1] == 'i') { train_data_pattern = argv[i+1]; }
-        else if (argv[i][1] == 'j') { val_data_pattern = argv[i+1]; }
+        if (argv[i][1] == 'i' && argv[i][2] == 'd' ) { train_data_pattern = argv[i+1]; }
+        else if (argv[i][1] == 'i' && argv[i][2] == 'v' ) { val_data_pattern = argv[i+1]; }
+        else if (argv[i][1] == 'i' && argv[i][2] == 't' ) { tokenizer_path = argv[i+1]; }
+        else if (argv[i][1] == 'i' && argv[i][2] == 'h' ) { hellaswag_path = argv[i+1]; }
         else if (argv[i][1] == 'e') { load_filename = argv[i+1]; }
         else if (argv[i][1] == 'o') { output_log_dir = argv[i+1]; }
         else if (argv[i][1] == 'n' && argv[i][2] == '\0') { checkpoint_every = atoi(argv[i+1]); }
@@ -1469,7 +1474,7 @@ int main(int argc, char *argv[]) {
     assert(total_batch_size % tokens_per_fwdbwd == 0);
     int grad_accum_steps = total_batch_size / tokens_per_fwdbwd;
     // if we're only overfitting a single batch for debugging, let's overfit the first batch
-    // from val instead of train split, because val is smaller and faster. (train_gpt2.py does the same)
+    // from val instead of train split, because val is smaller and faster.
     if (overfit_single_batch == 1) { train_data_pattern = val_data_pattern; }
     printf0("+-----------------------+----------------------------------------------------+\n");
     printf0("| Parameter             | Value                                              |\n");
@@ -1579,7 +1584,6 @@ int main(int argc, char *argv[]) {
 
     // build an EvalLoader for HellaSwag
     EvalLoader eval_loader;
-    const char* hellaswag_path = "dev/data/hellaswag/hellaswag_val.bin";
     const bool hellaswag_available = access(hellaswag_path, F_OK) == 0;
     const bool run_hellaswag = hellaswag_eval && hellaswag_available;
     if (run_hellaswag) {
@@ -1597,7 +1601,6 @@ int main(int argc, char *argv[]) {
     // prints outside of pretty table to here and below
     if (!hellaswag_available) {
         printf0("HellaSwag eval not found at %s, skipping its evaluation\n", hellaswag_path);
-        printf0("You can run `python dev/data/hellaswag.py` to export and use it with `-h 1`.\n");
     }
     // more prints related to allocations from gpt2_build_from_checkpoint down here to not mess up our table above
     printf0("num_parameters: %zu => bytes: %zu\n", model.num_parameters, model.num_parameters_bytes);
@@ -1614,7 +1617,7 @@ int main(int argc, char *argv[]) {
 
     // set up the Tokenizer
     Tokenizer tokenizer;
-    tokenizer_init(&tokenizer, "gpt2_tokenizer.bin");
+    tokenizer_init(&tokenizer, tokenizer_path);
 
     // set up learning rate scheduler
     LearningRateScheduler lr_scheduler;

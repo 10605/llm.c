@@ -40,7 +40,7 @@ int main(int argc, char *argv[]) {
     int enable_tf32 = deviceProp.major >= 8 ? 1 : 0;
     enable_tf32 = 0; // NOTE: disable TF32 for testing!!!
     printf("enable_tf32: %d\n", enable_tf32);
-    cublas_compute_type = enable_tf32 ? CUBLAS_COMPUTE_32F_FAST_TF32 : CUBLAS_COMPUTE_32F;
+    // cublas_compute_type = enable_tf32 ? CUBLAS_COMPUTE_32F_FAST_TF32 : CUBLAS_COMPUTE_32F;
     cublasMath_t cublas_math_mode = enable_tf32 ? CUBLAS_TF32_TENSOR_OP_MATH : CUBLAS_DEFAULT_MATH;
     cublasCheck(cublasSetMathMode(cublas_handle, cublas_math_mode));
 
@@ -61,7 +61,6 @@ int main(int argc, char *argv[]) {
     if (state_header[0] != 20240327) { printf("Bad magic state file\n"); exit(EXIT_FAILURE); }
     if (state_header[1] != 2) {
         fprintf(stderr, "Bad version in state file\n");
-        fprintf(stderr, "---> HINT: try to re-run `python train_gpt2.py`\n");
         exit(EXIT_FAILURE);
     }
     int B = state_header[2]; // batch size, e.g. 4

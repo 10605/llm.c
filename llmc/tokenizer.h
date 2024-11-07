@@ -44,8 +44,6 @@ void tokenizer_init(Tokenizer *tokenizer, const char *filename) {
         // try to be more helpful as we just added this feature, erase later
         printf("---\n");
         printf("WARNING: Failed to open the tokenizer file %s\n", filename);
-        printf("The Tokenizer is a new feature added April 14 2024.\n");
-        printf("Re-run `python train_gpt2.py` to write it\n");
         printf("---\n");
         tokenizer->init_ok = 0;
         return;
