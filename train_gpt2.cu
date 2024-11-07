@@ -1366,7 +1366,7 @@ int main(int argc, char *argv[]) {
     const char* val_data_pattern = "data/fineweb_val_*.bin";
     const char* tokenizer_path = "data/gpt2_tokenizer.bin";
     const char* hellaswag_path = "data/hellaswag_val.bin";
-    const char* load_filename;
+    const char* load_filename = nullptr;
     const char* lr_scheduler_type = "cosine";
     const char* output_log_dir = "log";
     int checkpoint_every = 1000; // write checkpoints every how many steps?
