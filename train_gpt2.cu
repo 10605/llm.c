@@ -115,6 +115,10 @@ typedef struct {
 } ParameterTensors;
 static_assert(sizeof(ParameterTensors) == NUM_PARAMETER_TENSORS * sizeof(void*), "Inconsistent sizes!");
 
+// CODE CHRIS ADDED
+// need this here to make it work - haven't coded much in C and don't know a better spot to put this
+FILE* log_file;
+
 void fill_in_parameter_sizes(size_t* param_sizes, size_t* param_sizeof, GPT2Config config) {
     size_t Vp = config.padded_vocab_size;
     size_t C = config.channels;
@@ -1358,6 +1362,26 @@ void error_usage() {
     exit(EXIT_FAILURE);
 }
 
+// CODE CHRIS ADDED
+
+// Function to log to both console and file
+void log_print(const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    
+    // Print to console (We dont actually wanna print to console)
+    //vprintf(format, args); 
+    
+    // Print to log file
+    if (log_file) {
+        vfprintf(log_file, format, args);
+        fflush(log_file);  // Ensure the output is flushed to the file
+    }
+    
+    va_end(args);
+}
+// END CODE CHRIS ADDED
+
 // ----------------------------------------------------------------------------
 // main training loop
 int main(int argc, char *argv[]) {
@@ -1609,6 +1633,76 @@ int main(int argc, char *argv[]) {
     printf0("batch_size B=%d * seq_len T=%d * num_processes=%d and total_batch_size=%d\n",
             B, T, multi_gpu_config.num_processes, total_batch_size);
     printf0("=> setting grad_accum_steps=%d\n", grad_accum_steps);
+
+    // CODE CHRIS ADDED
+    char log_file_path[256]; // Buffer to hold the full path
+
+    // Concatenate the path and filename
+    strcpy(log_file_path, output_log_dir); // Copy the directory path to log_file_path
+    strcat(log_file_path, "/run_parameters.txt");    // Append "/stats.txt" to it
+
+    log_file = fopen(log_file_path, "a");  // Open the log file in append mode
+
+    if (!log_file) {
+        char log_file_name[256];  // Create a buffer for the log file name
+        snprintf(log_file_name, sizeof(log_file_name), "%s/stats.txt", output_log_dir);
+        fprintf(stderr, "Error opening log file: %s\n", log_file_name);
+    }
+
+    // Now replace all printf0 calls with log_print
+    log_print("+-----------------------+----------------------------------------------------+\n");
+    log_print("| Parameter             | Value                                              |\n");
+    log_print("+-----------------------+----------------------------------------------------+\n");
+    log_print("| train data pattern    | %-50s |\n", train_data_pattern);
+    log_print("| val data pattern      | %-50s |\n", val_data_pattern);
+    log_print("| output log dir        | %-50s |\n", output_log_dir == NULL ? "NULL" : output_log_dir);
+    log_print("| checkpoint_every      | %-50d |\n", checkpoint_every);
+    log_print("| resume                | %-50d |\n", resume);
+    log_print("| micro batch size B    | %-50d |\n", B);
+    log_print("| sequence length T     | %-50d |\n", T);
+    log_print("| total batch size      | %-50d |\n", total_batch_size);
+    log_print("| LR scheduler          | %-50s |\n", lr_scheduler_type);
+    log_print("| learning rate (LR)    | %-50e |\n", learning_rate);
+    log_print("| warmup iterations     | %-50d |\n", warmup_iterations);
+    log_print("| final LR fraction     | %-50e |\n", final_learning_rate_frac);
+    log_print("| weight decay          | %-50e |\n", weight_decay);
+    log_print("| skip update lossz     | %-50f |\n", skip_update_lossz);
+    log_print("| skip update gradz     | %-50f |\n", skip_update_gradz);
+    log_print("| max_steps             | %-50d |\n", max_steps);
+    log_print("| val_loss_every        | %-50d |\n", val_loss_every);
+    log_print("| val_max_steps         | %-50d |\n", val_max_steps);
+    log_print("| sample_every          | %-50d |\n", sample_every);
+    log_print("| genT                  | %-50d |\n", genT);
+    log_print("| overfit_single_batch  | %-50d |\n", overfit_single_batch);
+    log_print("| use_master_weights    | %-50s |\n", use_master_weights ? "enabled" : "disabled");
+    log_print("| gelu_fusion           | %-50d |\n", gelu_fusion);
+    log_print("| recompute             | %-50d |\n", recompute);
+    log_print("+-----------------------+----------------------------------------------------+\n");
+    
+    log_print("| device                | %-50s |\n", deviceProp.name);
+    log_print("| peak TFlops           | %-50.1f |\n", get_flops_promised(deviceProp.name, PRECISION_MODE));
+    log_print("| precision             | %-50s |\n", precision_str);
+    log_print("+-----------------------+----------------------------------------------------+\n");
+
+    log_print("| weight init method    | %-50s |\n", resuming == 1 ? "intermediate checkpoint" : load_filename);
+    log_print("| max_sequence_length T | %-50d |\n", model.config.max_seq_len);
+    log_print("| vocab_size V          | %-50d |\n", model.config.vocab_size);
+    log_print("| padded_vocab_size Vp  | %-50d |\n", model.config.padded_vocab_size);
+    log_print("| num_layers L          | %-50d |\n", model.config.num_layers);
+    log_print("| num_heads NH          | %-50d |\n", model.config.num_heads);
+    log_print("| channels C            | %-50d |\n", model.config.channels);
+    log_print("| num_parameters        | %-50zu |\n", model.num_parameters);
+    log_print("+-----------------------+----------------------------------------------------+\n");
+    log_print("| train_num_batches     | %-50d |\n", train_num_batches);
+    log_print("| val_num_batches       | %-50d |\n", val_num_batches);
+    log_print("+-----------------------+----------------------------------------------------+\n");
+
+    // Close the log file before exiting
+    if (log_file) {
+        fclose(log_file);
+    }
+
+    // END CODE CHRIS ADDED
 
     // set up logging
     if (multi_gpu_config.process_rank == 0) { create_dir_if_not_exists(output_log_dir); }
