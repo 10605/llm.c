@@ -22,7 +22,7 @@ def upload_directory_to_s3(local_directory, s3_bucket, s3_directory):
 
 if __name__ == "__main__":
     # Check that we have the required arguments
-    if len(sys.argv) < 5:
+    if len(sys.argv) < 4:
         print("Usage: python script.py <s3_bucket_name> <path_to_experiment_logs> <cluster_name>")
         sys.exit(1)
 
