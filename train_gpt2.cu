@@ -1195,7 +1195,7 @@ void load_state(int* step, GPT2* model, DataLoader* loader, const char* filename
     freadCheck(state_header, sizeof(int), 256, state_file);
     assert(state_header[0] == 20240527); // magic number
     assert(state_header[1] == 1); // version number
-    assert(state_header[2] == multi_gpu_config.num_processes); // number of processes
+    assert(state_header[2] == multi_gpu_config    .num_processes); // number of processes
     assert(state_header[3] == multi_gpu_config.process_rank); // rank of this process
     int use_master_weights = state_header[4];  // whether we're using fp32 master weights
     int should_shuffle = state_header[5]; // shuffle state of the dataloader
@@ -1386,10 +1386,10 @@ void log_print(const char* format, ...) {
 // main training loop
 int main(int argc, char *argv[]) {
     // read in the (optional) command line arguments
-    const char* train_data_pattern = "data/fineweb_train_*.bin";
-    const char* val_data_pattern = "data/fineweb_val_*.bin";
-    const char* tokenizer_path = "data/gpt2_tokenizer.bin";
-    const char* hellaswag_path = "data/hellaswag_val.bin";
+    const char* train_data_pattern = "dev/data/fineweb_train_*.bin";
+    const char* val_data_pattern = "dev/data/fineweb_val_*.bin";
+    const char* tokenizer_path = "dev/data/gpt2_tokenizer.bin";
+    const char* hellaswag_path = "dev/data/hellaswag_val.bin";
     const char* load_filename = nullptr;
     const char* lr_scheduler_type = "cosine";
     const char* output_log_dir = "log";
