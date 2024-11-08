@@ -1,3 +1,4 @@
+
 /*
 GPT-2 Transformer Neural Net training loop. See README.md for usage.
 */
@@ -1638,8 +1639,15 @@ int main(int argc, char *argv[]) {
     char log_file_path[256]; // Buffer to hold the full path
 
     // Concatenate the path and filename
+
     strcpy(log_file_path, output_log_dir); // Copy the directory path to log_file_path
-    strcat(log_file_path, "/run_parameters.txt");    // Append "/stats.txt" to it
+    strcat(log_file_path, "/run_parameters.txt");    // Append "/run_parameters.txt" to it
+
+    struct stat st = {0};
+    if (stat(output_log_dir, &st) == -1) {
+        // Directory does not exist; create it
+        mkdir(output_log_dir, 0700);  // Creates the directory with read, write, and execute permissions for the owner
+    }
 
     log_file = fopen(log_file_path, "a");  // Open the log file in append mode
 
