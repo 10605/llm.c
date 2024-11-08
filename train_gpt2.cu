@@ -1387,10 +1387,10 @@ void log_print(const char* format, ...) {
 // main training loop
 int main(int argc, char *argv[]) {
     // read in the (optional) command line arguments
-    const char* train_data_pattern = "dev/data/fineweb_train_*.bin";
-    const char* val_data_pattern = "dev/data/fineweb_val_*.bin";
-    const char* tokenizer_path = "dev/data/gpt2_tokenizer.bin";
-    const char* hellaswag_path = "dev/data/hellaswag_val.bin";
+    const char* train_data_pattern = "data/fineweb_train_*.bin";
+    const char* val_data_pattern = "data/fineweb_val_*.bin";
+    const char* tokenizer_path = "data/gpt2_tokenizer.bin";
+    const char* hellaswag_path = "data/hellaswag_val.bin";
     const char* load_filename = nullptr;
     const char* lr_scheduler_type = "cosine";
     const char* output_log_dir = "log";
