@@ -1330,6 +1330,7 @@ void error_usage() {
     fprintf(stderr, "  -d <int>    total desired batch size (default = B * T * num_processes, i.e. no grad accumulation\n");
     // workload (number of steps)
     fprintf(stderr, "  -x <int>    max_steps of optimization to run (-1 (default) = disable, run 1 epoch)\n");
+    fprintf(stderr, "  -es <int>   early stopping after how many steps (-1 (default) = disable)\n");
     // optimization
     fprintf(stderr, "  -k <string> learning rate scheduler (default = cosine)\n");
     fprintf(stderr, "  -l <float>  learning rate (default = 3e-4f)\n");
@@ -1414,6 +1415,9 @@ int main(int argc, char *argv[]) {
     int genT = 64; // number of steps of inference we will do
     int overfit_single_batch = 0; // useful for debugging, 1 = only load a single data batch once
     int max_steps = -1;
+    
+    int early_stopping_steps = -1; // CHRIS ADDED
+    
     int override_enable_tf32 = 1;
     int use_master_weights = 1;
     int gelu_fusion = -1; // 0 = none, 1 = forward, 2 = forward+backward (-1 => per-GPU default)
@@ -1441,7 +1445,6 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 'i' && argv[i][2] == 'v' ) { val_data_pattern = argv[i+1]; }
         else if (argv[i][1] == 'i' && argv[i][2] == 't' ) { tokenizer_path = argv[i+1]; }
         else if (argv[i][1] == 'i' && argv[i][2] == 'h' ) { hellaswag_path = argv[i+1]; }
-        else if (argv[i][1] == 'e') { load_filename = argv[i+1]; }
         else if (argv[i][1] == 'o') { output_log_dir = argv[i+1]; }
         else if (argv[i][1] == 'n' && argv[i][2] == '\0') { checkpoint_every = atoi(argv[i+1]); }
         else if (argv[i][1] == 'y') { resume = atoi(argv[i+1]); }
@@ -1469,6 +1472,8 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == '1' && argv[i][2] == 'd') { depth = atoi(argv[i+1]); }
         else if (argv[i][1] == '1' && argv[i][2] == 'c') { num_channel = atoi(argv[i+1]); }
         else if (argv[i][1] == '1' && argv[i][2] == 'h') { num_heads = atoi(argv[i+1]); }
+        else if (argv[i][1] == 'e' && argv[i][2] == 's') { early_stopping_steps = atoi(argv[i+1]); } // flag -es <int> for early stopping stpes
+        else if (argv[i][1] == 'e') { load_filename = argv[i+1]; } // order matters
         else if (argv[i][1] == 'p' && argv[i][2] == 'i') { strcpy(nccl_init_method, argv[i+1]); }
         else if (argv[i][1] == 'p' && argv[i][2] == 'f') { strcpy(fs_path, argv[i+1]); }
         else if (argv[i][1] == 'p' && argv[i][2] == 's') { strcpy(server_ip, argv[i+1]); }
@@ -1479,6 +1484,8 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 's' && argv[i][2] == 'g') { skip_update_gradz = atof(argv[i+1]); }
         else if (argv[i][1] == 'n' && argv[i][2] == 'k') { checkpoints_keep = atoi(argv[i+1]); }
         else if (argv[i][1] == 'n' && argv[i][2] == 'm') { major_checkpoint_every = atoi(argv[i+1]); }
+
+
         else { error_usage(); }
     }
 
@@ -1520,6 +1527,7 @@ int main(int argc, char *argv[]) {
     printf0("| skip update lossz     | %-50f |\n", skip_update_lossz);
     printf0("| skip update gradz     | %-50f |\n", skip_update_gradz);
     printf0("| max_steps             | %-50d |\n", max_steps);
+    printf0("| early_stopping_steps  | %-50d |\n", early_stopping_steps);
     printf0("| val_loss_every        | %-50d |\n", val_loss_every);
     printf0("| val_max_steps         | %-50d |\n", val_max_steps);
     printf0("| sample_every          | %-50d |\n", sample_every);
@@ -1677,6 +1685,7 @@ int main(int argc, char *argv[]) {
     log_print("| skip update lossz     | %-50f |\n", skip_update_lossz);
     log_print("| skip update gradz     | %-50f |\n", skip_update_gradz);
     log_print("| max_steps             | %-50d |\n", max_steps);
+    log_print("| early_stopping_steps  | %-50d |\n", early_stopping_steps);
     log_print("| val_loss_every        | %-50d |\n", val_loss_every);
     log_print("| val_max_steps         | %-50d |\n", val_max_steps);
     log_print("| sample_every          | %-50d |\n", sample_every);
@@ -1768,10 +1777,19 @@ int main(int argc, char *argv[]) {
     cudaCheck(cudaProfilerStart());
     double total_sum_iteration_time_s = 0.0;
     float ema_tokens_per_second = 0.0f;
-    for (; step <= train_num_batches; step++) {
+
+    int train_steps = train_num_batches;
+
+    // EARLY STOPPING LOGIC, CHRIS ADDED
+    if (early_stopping_steps != -1)
+    {
+        train_steps = early_stopping_steps;
+    };
+
+    for (; step <= train_steps; step++) {
         NvtxRange step_range("Train step", step);
 
-        int last_step = step == train_num_batches;
+        int last_step = step == train_steps;
 
         // once in a while estimate the validation loss (all processes collaborate)
         if (step % val_loss_every == 0 || last_step) {
@@ -1929,7 +1947,7 @@ int main(int argc, char *argv[]) {
         }
         float mfu = gpt2_estimate_mfu(&model, B * T * grad_accum_steps, time_elapsed_ms / 1000.0f);
         printf0("step %4d/%d | loss %7.6f (%+.2fz)| norm %6.4f (%+.2fz)| lr %.2e | %.2f ms | %.1f%% bf16 MFU | %.0f tok/s\n",
-                step + 1, train_num_batches, model.mean_loss, zloss, grad_norm, zgrad, step_learning_rate,
+                step + 1, train_steps, model.mean_loss, zloss, grad_norm, zgrad, step_learning_rate,
                 time_elapsed_ms, 100*mfu, bias_corrected_ema_tokens_per_second);
         if(log_gpu_every > 0 && (step + 1) % log_gpu_every == 0) {
             GPUUtilInfo gpu_info = get_gpu_utilization_info();
@@ -1937,13 +1955,16 @@ int main(int argc, char *argv[]) {
                     gpu_info.gpu_utilization, gpu_info.mem_utilization, gpu_info.fan, gpu_info.clock, gpu_info.max_clock, gpu_info.power / 1000, gpu_info.power_limit / 1000,
                     gpu_info.temperature, gpu_info.temp_slowdown, gpu_info.throttle_reason);
         }
-        logger_log_train(&logger, step, model.mean_loss, step_learning_rate, grad_norm);
+        // CHRIS CHANGED
+        // - added logging for step time
+        logger_log_train(&logger, step, model.mean_loss, step_learning_rate, grad_norm, time_elapsed_ms);
+        // END CHRIS CHANGED
 
         // disable the profiler after 3 steps of optimization
         if (step == 3) { cudaProfilerStop(); }
     }
     // add a total average, for optimizations that are only mild improvements (excluding 1st batch as warmup)
-    printf0("total average iteration time: %f ms\n", total_sum_iteration_time_s / (train_num_batches-1) * 1000);
+    printf0("total average iteration time: %f ms\n", total_sum_iteration_time_s / (train_steps-1) * 1000);
 
     // free and destroy everything
     cudaCheck(cudaEventDestroy(end));
