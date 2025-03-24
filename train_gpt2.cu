@@ -1321,20 +1321,20 @@ void error_usage() {
     fprintf(stderr, "  -nm <int>   every how many step checkpoints are considered major? major checkpoints never get deleted.\n");
     fprintf(stderr, "  -y <int>    resume optimization found inside output log dir? (0=restart/overwrite, 1=resume/append)\n");
     // model definition
-    fprintf(stderr, "  -1d <int>   model depth (default = 6)\n");
-    fprintf(stderr, "  -1c <int>   model channels (default = 384)\n");
-    fprintf(stderr, "  -1h <int>   model number of heads (default = 6)\n");
+    fprintf(stderr, "  -1d <int>   model depth (default = 14)\n");
+    fprintf(stderr, "  -1c <int>   model channels (default = 896)\n");
+    fprintf(stderr, "  -1h <int>   model number of heads (default = 14)\n");
     // token layout for each step of the optimization
-    fprintf(stderr, "  -b <int>    (per-GPU, micro) batch size B (default = 4)\n");
+    fprintf(stderr, "  -b <int>    (per-GPU, micro) batch size B (default = 32)\n");
     fprintf(stderr, "  -t <int>    sequence length T (default = 1024)\n");
     fprintf(stderr, "  -d <int>    total desired batch size (default = B * T * num_processes, i.e. no grad accumulation\n");
     // workload (number of steps)
-    fprintf(stderr, "  -x <int>    max_steps of optimization to run (-1 (default) = disable, run 1 epoch)\n");
+    fprintf(stderr, "  -x <int>    max_steps of optimization to run (4000 (default), -1 = disable and run 1 epoch)\n");
     fprintf(stderr, "  -es <int>   early stopping after how many steps (-1 (default) = disable)\n");
     // optimization
     fprintf(stderr, "  -k <string> learning rate scheduler (default = cosine)\n");
     fprintf(stderr, "  -l <float>  learning rate (default = 3e-4f)\n");
-    fprintf(stderr, "  -u <int>    learning rate warmup iterations (default = 0, no warmup)\n");
+    fprintf(stderr, "  -u <int>    learning rate warmup iterations (default = 400, no warmup)\n");
     fprintf(stderr, "  -q <float>  learning rate decay: final fraction, at end of training (default = 1.0 (no decay))\n");
     fprintf(stderr, "  -c <float>  weight decay (default = 0.0f)\n");
     fprintf(stderr, "  -sl <float> outlier stability: skip update if loss goes above this in zscore (0.0f=off)\n");
@@ -1404,7 +1404,7 @@ int main(int argc, char *argv[]) {
     int total_batch_size = 524288; // will be calculated down below later, if not provided
     float learning_rate = 6e-4f;
     int log_gpu_every = -1;
-    int warmup_iterations = 700;
+    int warmup_iterations = 470;
     float final_learning_rate_frac = 0.0f; // final fraction of learning rate, at end of training
     float weight_decay = 0.1f;
     float skip_update_lossz = 0.0f; // skip update if loss goes above this in zscore
@@ -1414,7 +1414,8 @@ int main(int argc, char *argv[]) {
     int sample_every = 20000; // every how many steps to do inference?
     int genT = 64; // number of steps of inference we will do
     int overfit_single_batch = 0; // useful for debugging, 1 = only load a single data batch once
-    int max_steps = -1;
+    
+    int max_steps = 4725;
     
     int early_stopping_steps = -1; // CHRIS ADDED
     
@@ -1432,9 +1433,9 @@ int main(int argc, char *argv[]) {
     char server_ip[256] = "";  // used if init_method set to "tcp" -> set to your server ip address
     char fs_path[256] = "";  // used if init_method set to "fs" -> set to a shared filesystem path
 
-    int depth = 6;
-    int num_channel = 384;
-    int num_heads = 6;
+    int depth = 12;
+    int num_channel = 768;
+    int num_heads = 12;
 
     for (int i = 1; i < argc; i+=2) {
         if (i + 1 >= argc) { error_usage(); } // must have arg after flag
@@ -1489,11 +1490,19 @@ int main(int argc, char *argv[]) {
         else { error_usage(); }
     }
 
+    // 
     multi_gpu_config = multi_gpu_config_init(num_processes, process_rank, gpus_per_node, server_ip, fs_path, nccl_init_method);
     common_start(override_enable_tf32, false); // common init code for train/test/profile
 
     // should do a bit more error checking here
     assert(warmup_iterations >= 0);
+
+    if (max_steps != -1) {
+        assert(early_stopping_steps <= max_steps);
+    }
+
+     // CHRIS ADDED
+
     if (output_log_dir != NULL) {
         assert(strlen(output_log_dir) < 400); // careful bunch of hardcoded snprintf around this
     }
