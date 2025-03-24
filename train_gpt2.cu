@@ -1321,20 +1321,20 @@ void error_usage() {
     fprintf(stderr, "  -nm <int>   every how many step checkpoints are considered major? major checkpoints never get deleted.\n");
     fprintf(stderr, "  -y <int>    resume optimization found inside output log dir? (0=restart/overwrite, 1=resume/append)\n");
     // model definition
-    fprintf(stderr, "  -1d <int>   model depth (default = 14)\n");
-    fprintf(stderr, "  -1c <int>   model channels (default = 896)\n");
-    fprintf(stderr, "  -1h <int>   model number of heads (default = 14)\n");
+    fprintf(stderr, "  -1d <int>   model depth (default = 12)\n");
+    fprintf(stderr, "  -1c <int>   model channels (default = 768)\n");
+    fprintf(stderr, "  -1h <int>   model number of heads (default = 12)\n");
     // token layout for each step of the optimization
-    fprintf(stderr, "  -b <int>    (per-GPU, micro) batch size B (default = 32)\n");
+    fprintf(stderr, "  -b <int>    (per-GPU, micro) batch size B (default = 64)\n");
     fprintf(stderr, "  -t <int>    sequence length T (default = 1024)\n");
     fprintf(stderr, "  -d <int>    total desired batch size (default = B * T * num_processes, i.e. no grad accumulation\n");
     // workload (number of steps)
-    fprintf(stderr, "  -x <int>    max_steps of optimization to run (4000 (default), -1 = disable and run 1 epoch)\n");
+    fprintf(stderr, "  -x <int>    max_steps of optimization to run (4725 (default), -1 = disable and run 1 epoch)\n");
     fprintf(stderr, "  -es <int>   early stopping after how many steps (-1 (default) = disable)\n");
     // optimization
     fprintf(stderr, "  -k <string> learning rate scheduler (default = cosine)\n");
     fprintf(stderr, "  -l <float>  learning rate (default = 3e-4f)\n");
-    fprintf(stderr, "  -u <int>    learning rate warmup iterations (default = 400, no warmup)\n");
+    fprintf(stderr, "  -u <int>    learning rate warmup iterations (default = 470, no warmup)\n");
     fprintf(stderr, "  -q <float>  learning rate decay: final fraction, at end of training (default = 1.0 (no decay))\n");
     fprintf(stderr, "  -c <float>  weight decay (default = 0.0f)\n");
     fprintf(stderr, "  -sl <float> outlier stability: skip update if loss goes above this in zscore (0.0f=off)\n");
