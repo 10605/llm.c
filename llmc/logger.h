@@ -46,13 +46,16 @@ void logger_log_val(Logger *logger, int step, float val_loss) {
         fclose(logfile);
     }
 }
-
-void logger_log_train(Logger *logger, int step, float train_loss, float learning_rate, float grad_norm) {
+// CHRIS CHANGED
+// - added logging for time in ms
+void logger_log_train(Logger *logger, int step, float train_loss, float learning_rate, float grad_norm, float time_ms) {
     if (logger->active == 1) {
         FILE *logfile = fopenCheck(logger->output_log_file, "a");
-        fprintf(logfile, "s:%d trl:%.4f lr:%.6f norm:%.2f\n", step, train_loss, learning_rate, grad_norm);
+        fprintf(logfile, "s:%d trl:%.4f lr:%.6f norm:%.2f time (ms):%.2f\n", step, train_loss, learning_rate, grad_norm, time_ms);
         fclose(logfile);
     }
 }
+// end chris change
+
 
 #endif
