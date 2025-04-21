@@ -210,61 +210,45 @@ else
   $(info ✗ MPI not found)
 endif
 
-# Precision settings, default to bf16 but ability to override
-PRECISION ?= BF16
-VALID_PRECISIONS := FP32 FP16 BF16
-ifeq ($(filter $(PRECISION),$(VALID_PRECISIONS)),)
-  $(error Invalid precision $(PRECISION), valid precisions are $(VALID_PRECISIONS))
-endif
-ifeq ($(PRECISION), FP32)
-  PFLAGS = -DENABLE_FP32
-else ifeq ($(PRECISION), FP16)
-  PFLAGS = -DENABLE_FP16
-else
-  PFLAGS = -DENABLE_BF16
-endif
+# # Precision settings, default to bf16 but ability to override
+# PRECISION ?= BF16
+# VALID_PRECISIONS := FP32 FP16 BF16
+# ifeq ($(filter $(PRECISION),$(VALID_PRECISIONS)),)
+#   $(error Invalid precision $(PRECISION), valid precisions are $(VALID_PRECISIONS))
+# endif
+# ifeq ($(PRECISION), FP32)
+#   PFLAGS = -DENABLE_FP32
+# else ifeq ($(PRECISION), FP16)
+#   PFLAGS = -DENABLE_FP16
+# else
+#   PFLAGS = -DENABLE_BF16
+# endif
+
+PFLAGS = -DENABLE_BF16
 
 # PHONY means these targets will always be executed
-.PHONY: all train_gpt2 test_gpt2 train_gpt2cu test_gpt2cu train_gpt2fp32cu test_gpt2fp32cu profile_gpt2cu
+.PHONY: all train_gpt2cu
 
 # Add targets
-TARGETS = train_gpt2 test_gpt2
+TARGETS = train_gpt2cu
 
 # Conditional inclusion of CUDA targets
 ifeq ($(NVCC),)
     $(info ✗ nvcc not found, skipping GPU/CUDA builds)
 else
     $(info ✓ nvcc found, including GPU/CUDA support)
-    TARGETS += train_gpt2cu test_gpt2cu train_gpt2fp32cu test_gpt2fp32cu $(NVCC_CUDNN)
+    TARGETS += train_gpt2cu $(NVCC_CUDNN)
 endif
 
 $(info ---------------------------------------------)
 
 all: $(TARGETS)
 
-train_gpt2: train_gpt2.c
-	$(CC) $(CFLAGS) $(INCLUDES) $(LDFLAGS) $^ $(LDLIBS) $(OUTPUT_FILE)
-
-test_gpt2: test_gpt2.c
-	$(CC) $(CFLAGS) $(INCLUDES) $(LDFLAGS) $^ $(LDLIBS) $(OUTPUT_FILE)
-
 $(NVCC_CUDNN): llmc/cudnn_att.cpp
 	$(NVCC) -c $(NVCC_FLAGS) $(PFLAGS) $^ $(NVCC_INCLUDES) -o $@
 
 train_gpt2cu: train_gpt2.cu $(NVCC_CUDNN)
 	$(NVCC) $(NVCC_FLAGS) $(PFLAGS) $^ $(NVCC_LDFLAGS) $(NVCC_INCLUDES) $(NVCC_LDLIBS) $(CUDA_OUTPUT_FILE)
-
-train_gpt2fp32cu: train_gpt2_fp32.cu
-	$(NVCC) $(NVCC_FLAGS) $^ $(NVCC_LDFLAGS) $(NVCC_INCLUDES) $(NVCC_LDLIBS) $(CUDA_OUTPUT_FILE)
-
-test_gpt2cu: test_gpt2.cu $(NVCC_CUDNN)
-	$(NVCC) $(NVCC_FLAGS) $(PFLAGS) $^ $(NVCC_LDFLAGS) $(NVCC_INCLUDES) $(NVCC_LDLIBS) $(CUDA_OUTPUT_FILE)
-
-test_gpt2fp32cu: test_gpt2_fp32.cu
-	$(NVCC) $(NVCC_FLAGS) $^ $(NVCC_LDFLAGS) $(NVCC_INCLUDES) $(NVCC_LDLIBS) $(CUDA_OUTPUT_FILE)
-
-profile_gpt2cu: profile_gpt2.cu $(NVCC_CUDNN)
-	$(NVCC) $(NVCC_FLAGS) $(PFLAGS) -lineinfo $^ $(NVCC_LDFLAGS) $(NVCC_INCLUDES) $(NVCC_LDLIBS)  $(CUDA_OUTPUT_FILE)
 
 clean:
 	$(REMOVE_FILES) $(TARGETS)
