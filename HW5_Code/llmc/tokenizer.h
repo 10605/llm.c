@@ -91,7 +91,50 @@ const char *tokenizer_decode(Tokenizer *tokenizer, uint32_t token_id) {
         printf("invalid token id %u!\n", token_id);
         return NULL;
     }
+
 }
+
+int tokenizer_encode(Tokenizer *tokenizer, const char *text, uint32_t *tokens, int max_tokens) {
+    if (tokenizer->init_ok == 0) {
+        return -1;
+    }
+
+    int num_tokens = 0;
+    size_t text_len = strlen(text);
+    size_t pos = 0;
+
+    while (pos < text_len && num_tokens < max_tokens) {
+        int best_match_len = 0;
+        uint32_t best_token_id = 0;
+
+        for (size_t match_len = 1; match_len <= text_len - pos && match_len < 128; match_len++) {
+            for (uint32_t tid = 0; tid < tokenizer->vocab_size; tid++) {
+                const char* token_str = tokenizer->token_table[tid];
+                if (token_str == NULL) continue;
+                
+                size_t token_len = strlen(token_str);
+                if (token_len != match_len) continue;
+                
+                if (strncmp(text + pos, token_str, token_len) == 0) {
+                    if ((int)token_len > best_match_len) {
+                        best_match_len = token_len;
+                        best_token_id = tid;
+                    }
+                }
+            }
+        }
+        
+        if (best_match_len > 0) {
+            tokens[num_tokens++] = best_token_id;
+            pos += best_match_len;
+        } else {
+            fprintf(stderr, "tokenizer_encode: cannot encode text at position %zu\n", pos);
+        }
+    }
+    
+    return num_tokens;
+}
+
 
 void tokenizer_free(Tokenizer *tokenizer) {
     if (tokenizer->init_ok) {
