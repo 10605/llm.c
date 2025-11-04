@@ -1,7 +1,7 @@
 
 /*
 GPT-2 Conditional Text Generation - Inference only
-Usage: ./inference_gpt2cu -e model.bin -p "Your prompt text here" -g 256 -s 1337
+Usage: ./inference_gpt2cu -e model.bin -p "Your prompt text here" -it tokenizer.bin -g 256 -s 1337
 */
 #include <unistd.h>
 #include <stdio.h>
@@ -587,7 +587,7 @@ int main(int argc, char *argv[]) {
     const char* model_path = NULL;
     const char* prompt_text = NULL;
     // const char* tokenizer_path = "data/gpt2_tokenizer.bin";
-    const char* tokenizer_path = "/home/ubuntu/f24/llm.c/data/gpt2_tokenizer.bin";
+    const char* tokenizer_path = NULL;
     int genT = 256;
     int T = 1024; // sequence length max
     unsigned long long seed = 1337;
@@ -736,6 +736,10 @@ int main(int argc, char *argv[]) {
         } else {
             // fall back to printing the token id
             printf("%d ", next_token);
+        }
+        if (next_token == tokenizer.eot_token) {
+            printf0("\n[Generation stoped: EOT token]\n");
+            break; // stop generation on EOT token
         }
         fflush(stdout);
     }
