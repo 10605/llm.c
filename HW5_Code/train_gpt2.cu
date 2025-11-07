@@ -1420,7 +1420,7 @@ int main(int argc, char *argv[]) {
     
     int early_stopping_steps = -1; // CHRIS ADDED
 
-    int step_start = 0; // resumption step
+    int start_step = 0; // resumption step
     
     int override_enable_tf32 = 1;
     int use_master_weights = 1;
@@ -1486,7 +1486,7 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 'p' && argv[i][2] == 'g') { gpus_per_node = atoi(argv[i+1]); }
         else if (argv[i][1] == 's' && argv[i][2] == 'l') { skip_update_lossz = atof(argv[i+1]); }
         else if (argv[i][1] == 's' && argv[i][2] == 'g') { skip_update_gradz = atof(argv[i+1]); }
-        else if (argv[i][1] == 's' && argv[i][2] == 's') { step_start = atoi(argv[i+1]); }
+        else if (argv[i][1] == 's' && argv[i][2] == 's') { start_step = atoi(argv[i+1]); }
         else if (argv[i][1] == 'n' && argv[i][2] == 'k') { checkpoints_keep = atoi(argv[i+1]); }
         else if (argv[i][1] == 'n' && argv[i][2] == 'm') { major_checkpoint_every = atoi(argv[i+1]); }
 
