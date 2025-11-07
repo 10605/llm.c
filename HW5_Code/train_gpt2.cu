@@ -1332,6 +1332,7 @@ void error_usage() {
     fprintf(stderr, "  -x <int>    max_steps of optimization to run (4725 (default), -1 = disable and run 1 epoch)\n");
     fprintf(stderr, "  -es <int>   early stopping after how many steps (-1 (default) = disable)\n");
     // optimization
+    fprintf(stderr, "  -ss <int>   learning rate scheduler starting step (default = 0)\n");
     fprintf(stderr, "  -k <string> learning rate scheduler (default = cosine)\n");
     fprintf(stderr, "  -l <float>  learning rate (default = 3e-4f)\n");
     fprintf(stderr, "  -u <int>    learning rate warmup iterations (default = 470, no warmup)\n");
@@ -1418,6 +1419,8 @@ int main(int argc, char *argv[]) {
     int max_steps = 4725;
     
     int early_stopping_steps = -1; // CHRIS ADDED
+
+    int step_start = 0; // resumption step
     
     int override_enable_tf32 = 1;
     int use_master_weights = 1;
@@ -1483,6 +1486,7 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 'p' && argv[i][2] == 'g') { gpus_per_node = atoi(argv[i+1]); }
         else if (argv[i][1] == 's' && argv[i][2] == 'l') { skip_update_lossz = atof(argv[i+1]); }
         else if (argv[i][1] == 's' && argv[i][2] == 'g') { skip_update_gradz = atof(argv[i+1]); }
+        else if (argv[i][1] == 's' && argv[i][2] == 's') { step_start = atoi(argv[i+1]); }
         else if (argv[i][1] == 'n' && argv[i][2] == 'k') { checkpoints_keep = atoi(argv[i+1]); }
         else if (argv[i][1] == 'n' && argv[i][2] == 'm') { major_checkpoint_every = atoi(argv[i+1]); }
 
@@ -1750,7 +1754,11 @@ int main(int argc, char *argv[]) {
     float*  cpu_logits = (float*)mallocCheck(model.config.vocab_size * sizeof(float));
 
     // if we found a checkpoint to resume from, load the optimization state
-    int step = 0;
+        
+    // start from step 0 unless resuming. If resuming, this will be overwritten below.
+    // if we want to continue training a partially trained model, on a new dataset for example, we can set start_step accordingly.
+    int step = start_step;  
+
     gpt2_allocate_state(&model, B, T);
     if (resuming == 1) {
         snprintf(filename_buffer, sizeof(filename_buffer), "%s/state_%08d_%05d.bin", output_log_dir, resume_max_step, multi_gpu_config.process_rank);
