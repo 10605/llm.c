@@ -206,8 +206,6 @@ void global_sum_deterministic(float* result, const Float* values, int count, cud
 }
 
 // ----------------------------------------------------------------------------
-// memory management
-
 // allocate memory, preferrably on the device
 // returns a status code. 0 = OK, 1 = fell back to managed memory
 int cudaMallocConditionallyManaged(void** out, size_t bytes, const char *file, int line) {
@@ -216,11 +214,11 @@ int cudaMallocConditionallyManaged(void** out, size_t bytes, const char *file, i
     if(err == cudaErrorMemoryAllocation) {
         // if we OOM, fallback to a managed allocation. slower but at least won't crash.
         cudaGetLastError(); // reset the error before the next API call
-        cudaCheck_(cudaMallocManaged(out, bytes), file, line);
-        cudaCheck_(cudaMemAdvise(*out, bytes, cudaMemAdviseSetPreferredLocation, cudaCpuDeviceId), file, line);
+        (cudaCheck)(cudaMallocManaged(out, bytes), file, line);
+        (cudaCheck)(cudaMemAdvise(*out, bytes, cudaMemAdviseSetPreferredLocation, cudaCpuDeviceId), file, line);
         return 1;
     } else {
-        cudaCheck_(err, file, line);
+        (cudaCheck)(err, file, line);
         return 0;
     }
 }
@@ -228,7 +226,6 @@ int cudaMallocConditionallyManaged(void** out, size_t bytes, const char *file, i
 #define cudaMallocConditionallyManaged(out, bytes)\
 (cudaMallocConditionallyManaged((void**)out, bytes, __FILE__, __LINE__))
 
-// ----------------------------------------------------------------------------
 // Random Number Generation used in Stochastic Rounding
 
 // SquirrelNoise5 - Squirrel's Raw Noise utilities (version 5)
@@ -281,6 +278,19 @@ __device__ __forceinline__ void stochastic_rounding(float in, half *out, unsigne
 }
 __device__ __forceinline__ void stochastic_rounding(float in, float *out, unsigned int random) {
     *out = in; // dummy function for when floatX is float (FP32 mode)
+}
+
+__global__ void abs_sum_kernel(floatX* data, int N, int C, float* sum) {
+    float accumulator = 0.f;
+    for(size_t i = threadIdx.x; i < C; i += WARP_SIZE) {
+        int idx = blockIdx.x * C + i;
+        accumulator += fabsf((float)data[idx]);
+    }
+    accumulator = warpReduceSum(accumulator);
+    if(threadIdx.x == 0) {
+        // This is just used for data collection so no need for deterministic reduction
+        atomicAdd(sum, accumulator);
+    }
 }
 
 #endif

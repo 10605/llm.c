@@ -34,3 +34,16 @@ dev/cuda/global_norm
 
 # log files
 *.log
+# Local environments, cloud credentials and generated exercise output
+.venv*/
+.modal.toml
+modal-results/
+HW5_Code/runs/
+HW5_Code/prepared/
+HW5_Code/build/
+HW5_Code/fineweb100B/
+HW5_Code/.mpl-cache/
+HW5_Code/dev/test/test_dataloader
+HW5_Code/dev/test/test_outlier_detector
+HW5_Code/dev/test/test_rng_state
+*.log

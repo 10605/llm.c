@@ -1,0 +1,46 @@
+name: muP host checks
+
+on:
+  push:
+    branches: [mup, master]
+    paths: ['HW5_Code/**', '.github/workflows/mup-host-tests.yml']
+  pull_request:
+    branches: [master]
+    paths: ['HW5_Code/**', '.github/workflows/mup-host-tests.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: HW5_Code
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU dependencies and pinned reference
+        run: |
+          python -m pip install 'numpy<2'
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          git fetch https://github.com/GatiAher/llm.c.git 706b1a5fc94de4bc16a4a3684eafaad6b9e0dada
+      - name: Configuration, initialization, recovery and packaging
+        run: |
+          python dev/test/test_training_controls.py
+          python dev/test/test_model_initialization.py
+          python dev/test/test_python_mup_initialization.py
+          python dev/test/test_sweep_recovery.py
+          python dev/test/test_source_packaging.py
+      - name: Existing C host checks
+        run: |
+          cc -O3 -I llmc -o /tmp/test_dataloader dev/test/test_dataloader.c -lm
+          (cd /tmp && ./test_dataloader)
+          cc -O3 -I llmc -o /tmp/test_outlier dev/test/test_outlier_detector.c -lm
+          /tmp/test_outlier
+          cc -O3 -I llmc -o /tmp/test_rng dev/test/test_rng_state.c -lm
+          /tmp/test_rng
