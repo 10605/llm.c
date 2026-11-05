@@ -15,7 +15,7 @@ import numpy as np
 import requests
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--suite', choices=['single', 'multi', 'baseline', 'focused', 'cudnn_diagnostic', 'mup_fix_training'], required=True)
+parser.add_argument('--suite', choices=['single', 'multi', 'baseline', 'focused', 'cudnn_diagnostic', 'mup_fix_training', 'course_preset'], required=True)
 parser.add_argument('--work', type=Path, required=True)
 parser.add_argument('--results', type=Path, required=True)
 parser.add_argument('--cache', type=Path, required=True)
@@ -116,6 +116,8 @@ def train(name, extra=(), exe=None, root=ROOT, multi=False, old_paths=False):
     out.parent.mkdir(exist_ok=True)
     exe = exe or root / 'train_gpt2cu'
     cmd = (["mpirun", "--allow-run-as-root", "-np", "2"] if multi else []) + [str(exe)]
+    if root == ROOT:
+        cmd += ['-cp', '0']  # historical integration/parity cases retain their original recipe
     cmd += ['-b', '2', '-t', '64', '-d', '256' if multi else '128', '-x', '6', '-m', '2', '-v', '20', '-s', '0', '-n', '3', '-o', str(out), '-f', '0']
     if old_paths:
         cmd += ['-i', str(args.cache/'tiny_shakespeare_train.bin'), '-j', str(args.cache/'tiny_shakespeare_val.bin')]
@@ -239,6 +241,129 @@ def checkpoint_checks():
     assert sorted(p.name for p in retained.glob('DONE_*')) == ['DONE_00000004', 'DONE_00000006']
 
 
+def course_run(name, extra=(), steps=10, tiny=True, fixed_decay=True):
+    out=ROOT/'runs'/name
+    out.parent.mkdir(exist_ok=True)
+    cmd=['./train_gpt2cu','-l','.0006','-nk','0','-id',str(args.cache/'tiny_shakespeare_train.bin'),
+         '-iv',str(args.cache/'tiny_shakespeare_val.bin'),'-it',str(args.cache/'gpt2_tokenizer.bin'),
+         '-b','2','-t','64','-d','256','-v','5','-m','2','-s','0','-n','5','-o',str(out),'-f','0']
+    if tiny: cmd+=['-1d','2','-1c','48']
+    if fixed_decay: cmd+=['-c','.1']  # very short correctness cases use explicit decay
+    if steps is not None: cmd+=['-x',str(steps)]
+    cmd+=list(map(str,extra))
+    output=run(cmd)
+    assert not re.search(r'\bloss\s+(?:nan|inf)\b|\bnorm\s+(?:nan|inf)\b',output,re.I)
+    params=dict(re.findall(r'\b(\w+)=([^\s]+)',(out/'run_parameters.txt').read_text()))
+    return out,params
+
+
+def course_widths():
+    for width in [48,96,192,768]:
+        out,p=course_run(f'course-width-{width}',['-1c',width],steps=1)
+        assert (int(p['heads']),int(p['mup']),float(p['reference_width']),float(p['attention_mult']))==(12,1,192,4)
+        assert float(p['width_mult'])==width/192
+        assert p['scheduler']=='linear' and p['initialization_seed']=='42'
+        assert p['max_seq_len']=='2048'
+        assert math.isclose(float(p['weight_decay']),.1,rel_tol=1e-6) and float(p['final_fraction'])==0
+    _,p=course_run('course-default-architecture',steps=1,tiny=False)
+    assert (int(p['layers']),int(p['channels']),int(p['heads']))==(12,768,12)
+    return 'Implicit muP settings at four widths; default 124M architecture trains.'
+
+
+def course_equivalence():
+    a,p=course_run('course-implicit')
+    assert p['warmup']=='1' and abs(float(p['lr'])-.0006)<1e-9
+    b,_=course_run('course-explicit',['-cp',0,'-me',1,'-1h',12,'-mb',192,'-ma',4,
+        '-e','gpt3:c768','-k','linear','-l','.0006','-u',1,'-q',0,'-c','.1','-se',42])
+    return compare_models(a,b,step=10)
+
+
+def course_seed_and_resume():
+    full,p=course_run('course-seed43',['-se',43])
+    assert p['initialization_seed']=='43'
+    seed42=ROOT/'runs/course-implicit/model_00000010.bin'
+    assert payload_hash(full/'model_00000010.bin')!=payload_hash(seed42)
+    split,_=course_run('course-seed43-split',['-se',43,'-es',5])
+    # No architecture/parametrization flags on resume; -se must not replace weights.
+    _,p=course_run('course-seed43-split',['-y',1,'-se',99],tiny=False)
+    assert p['initialization_seed']=='checkpoint' and p['resume']=='1'
+    compare_models(full,split,step=10)
+    state='state_00000010_00000.bin'
+    assert (full/state).read_bytes()==(split/state).read_bytes()
+    return 'Distinct seed changes weights; model/optimizer/data/RNG resume is byte-identical.'
+
+
+def course_checkpoint_defaults():
+    for me in [0,1]:
+        name=f'course-custom-checkpoint-{me}'
+        full,_=course_run(name,['-me',me,'-1c',64,'-1h',2,'-mb',64,'-ma',8])
+        _,p=course_run(name,['-y',1],tiny=False)
+        assert (int(p['mup']),int(p['heads']),int(p['channels']))==(me,2,64)
+        assert float(p['reference_width'])==64 and float(p['attention_mult'])==8
+        assert p['initialization_seed']=='checkpoint'
+    return 'SP and custom-reference muP checkpoints override implicit course defaults.'
+
+
+def course_budgets():
+    _,p=course_run('course-token-rounding',['-nt',2561],steps=None)
+    assert (p['schedule_steps'],p['requested_tokens'],p['schedule_tokens'],p['warmup'])==('11','2561','2816','1')
+    _,p=course_run('course-small-microbatch',['-b',1],steps=1)
+    assert (p['total_batch'],p['accumulation'])==('256','4')
+    _,p=course_run('course-early-stop',['-es',5],steps=100)
+    assert (p['stop_step'],p['schedule_steps'],p['warmup'])==('5','100','10')
+    _,p=course_run('course-constant',['-k','constant','-c',0],steps=10)
+    assert p['warmup']=='0'
+    return 'Whole-batch token rounding, fixed global batch, full-horizon warmup and constant override.'
+
+
+def course_token_early_stop():
+    # Stop inside the long warmup. Truncating the schedule would change weights.
+    split,p=course_run('course-token-stop',['-nt',25600,'-et',1281],steps=None)
+    assert (p['schedule_steps'],p['warmup'],p['stop_step'],p['stop_tokens'])==('100','10','6','1536')
+    assert p['requested_early_tokens']=='1281'
+    legacy,_=course_run('course-step-stop',['-es',6],steps=100)
+    compare_models(split,legacy,step=6)
+    state='state_00000006_00000.bin'
+    assert (split/state).read_bytes()==(legacy/state).read_bytes()
+    # A later token stop on resume is an absolute position, not extra work.
+    _,p=course_run('course-token-stop',['-nt',25600,'-et',2304,'-y',1],steps=None,tiny=False)
+    assert (p['start_step'],p['stop_step'],p['schedule_steps'],p['warmup'])==('6','9','100','10')
+    full,_=course_run('course-token-uninterrupted',['-nt',25600,'-et',2304],steps=None)
+    compare_models(split,full,step=9)
+    state='state_00000009_00000.bin'
+    assert (split/state).read_bytes()==(full/state).read_bytes()
+    return 'Token/legacy early-stop weights and state match; token-based resume is exact with unchanged long schedule.'
+
+
+def course_timescale():
+    for index,(lr,batch) in enumerate([(.001,256),(.002,256),(.001,512)]):
+        flags=['-nt',256000,'-et',batch*3,'-d',batch,'-l',lr]
+        auto,p=course_run(f'course-tau-{index}',flags,steps=None,fixed_decay=False)
+        assert p['decay_mode']=='timescale'
+        tau=1/(float(p['lr'])*float(p['weight_decay'])*int(p['schedule_steps']))
+        assert math.isclose(tau,.1,rel_tol=1e-6)
+        manual,_=course_run(f'course-tau-explicit-{index}',flags+['-c',p['weight_decay']],steps=None)
+        compare_models(auto,manual,step=3)
+        state='state_00000003_00000.bin'
+        assert (auto/state).read_bytes()==(manual/state).read_bytes()
+    # Changing only the absolute stopping point on resume retains tau and state.
+    flags=['-nt',256000,'-et',1280,'-d',256,'-l','.001']
+    split,p=course_run('course-tau-0',flags+['-y',1],steps=None,tiny=False,fixed_decay=False)
+    full,_=course_run('course-tau-uninterrupted',flags,steps=None,fixed_decay=False)
+    compare_models(split,full,step=5)
+    state='state_00000005_00000.bin'
+    assert (split/state).read_bytes()==(full/state).read_bytes()
+    return 'Automatic decay equals explicit decay at two LRs and batches; exact resumed optimizer state with fixed full-horizon tau.'
+
+
+def course_context():
+    _,p=course_run('course-context2048',['-b',4,'-t',2048,'-d',114688,
+                                      '-nt',2505246720,'-et',114688],steps=None,fixed_decay=False)
+    assert (p['sequence'],p['max_seq_len'],p['total_batch'],p['accumulation'])==('2048','2048','114688','14')
+    assert p['stop_step']=='1' and p['decay_mode']=='timescale'
+    return '2048-token context with 114688 global tokens trains using 14 accumulation passes and the full target decay horizon.'
+
+
 def main():
     global CAP
     info = run(['nvidia-smi'])
@@ -246,6 +371,17 @@ def main():
     CAP = cap
     (RESULTS/'environment.txt').write_text(info + run(['nvcc', '--version']))
     if not test('download upstream test fixtures', fixtures):
+        return
+    if args.suite == 'course_preset':
+        if test('build course BF16 trainer', build):
+            test('course fixed heads and width scaling', course_widths)
+            if test('implicit preset equals explicit legacy recipe', course_equivalence):
+                test('initialization seed and exact checkpoint resumption', course_seed_and_resume)
+            test('saved parametrization overrides course defaults', course_checkpoint_defaults)
+            test('course token budgets, microbatch and warmup', course_budgets)
+            test('token early stop preserves schedule and exact resumption', course_token_early_stop)
+            test('AdamW timescale derivation and exact resumption', course_timescale)
+            test('2048-token course context and target batch', course_context)
         return
     if args.suite == 'mup_fix_training':
         if test('build corrected BF16 trainer', build):

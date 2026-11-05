@@ -35,7 +35,7 @@ def make_plan(train_pattern, val_pattern, tokenizer, steps=500, total_batch=4096
         for width in widths:
             for lr in rates:
                 name = f'{mode}-c{width}-lr2pow{round(math.log2(lr))}'
-                command = ['./train_gpt2cu', '-e', 'd12', '-1d', '12', '-1c', str(width), '-1h', '12',
+                command = ['./train_gpt2cu', '-cp', '0', '-e', 'd12', '-1d', '12', '-1c', str(width), '-1h', '12',
                            '-me', str(int(mode == 'mup')), '-id', train_pattern, '-iv', val_pattern,
                            '-it', tokenizer, '-b', '4', '-t', '256', '-d', str(total_batch),
                            '-x', str(steps), '-k', scheduler, '-l', repr(lr), '-u', str(warmup_steps),
@@ -52,7 +52,7 @@ def make_plan(train_pattern, val_pattern, tokenizer, steps=500, total_batch=4096
             'training_steps': steps, 'tokens_per_trial': steps*total_batch,
             'experiment': experiment,
             'min_lr_exponent': min_lr_exponent, 'max_lr_exponent': max_lr_exponent,
-            'initialization_seed': 42, 'seed_note': 'The current trainer uses fixed initialization seed 42; repeated-seed confirmation needs additional seed support or explicit weight fixtures.',
+            'initialization_seed': 42, 'seed_note': 'This sweep uses default initialization seed 42. Direct trainer runs support -se for repeated initializations with fixed data order.',
             'primary_metric': 'validation loss at equal final token count',
             'reference_figure_metric': 'mean of last 20 training losses',
             'selection': 'Choose LR from the width-48 muP validation curve before running width-768 trials; also freeze width-96 and width-192 selections as secondary transfer checks.',

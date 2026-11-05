@@ -621,7 +621,7 @@ void gpt_build_from_descriptor(GPT2 *model, const char* descriptor, int mup_widt
     // weights ~N(0, 0.02), biases 0, c_proj weights ~N(0, 0.02/(2*L)**0.5)
     // NOTE: assuming all parameters are of the type floatX, could be relaxed later
     mt19937_state init_rng;
-    manual_seed(&init_rng, 42);
+    manual_seed(&init_rng, (unsigned int)opts.initialization_seed);
     floatX* params_memory_cpu = (floatX*)mallocCheck(model->num_parameters_bytes);
     memset(params_memory_cpu, 0, model->num_parameters_bytes);
     // fill in all the weights with random values
@@ -1309,7 +1309,7 @@ void save_state(const char* filename, int step, GPT2* model, DataLoader* loader)
     fcloseCheck(state_file);
 }
 
-void load_state(int* step, GPT2* model, DataLoader* loader, const char* filename) {
+void load_state(int* step, GPT2* model, DataLoader* loader, const char* filename, int reset_train_loader = 0) {
     FILE *state_file = fopenCheck(filename, "rb");
     int state_header[256];
     freadCheck(state_header, sizeof(int), 256, state_file);
@@ -1363,27 +1363,11 @@ void load_state(int* step, GPT2* model, DataLoader* loader, const char* filename
         fseekCheck(state_file, shard_num_parameters * sizeof(float), SEEK_CUR);
     }
 
-    // revive the DataLoader object and its state
-    loader->should_shuffle = should_shuffle;
-    if (should_shuffle == 1) {
-        // ensure the number of shards matches
-        size_t glob_result_gl_pathc;
-        freadCheck(&glob_result_gl_pathc, sizeof(size_t), 1, state_file);
-        assert(glob_result_gl_pathc == loader->glob_result.gl_pathc);
-        // read the shard indices
-        loader->shard_indices = (int*)mallocCheck(loader->glob_result.gl_pathc * sizeof(int));
-        freadCheck(loader->shard_indices, sizeof(int), loader->glob_result.gl_pathc, state_file);
-        // ensure the number of samples matches
-        size_t shard_num_samples;
-        freadCheck(&shard_num_samples, sizeof(size_t), 1, state_file);
-        assert(shard_num_samples == loader->shard_num_samples);
-        // read the intra-shard indices
-        loader->intra_shard_indices = (int*)mallocCheck(loader->shard_num_samples * sizeof(int));
-        freadCheck(loader->intra_shard_indices, sizeof(int), loader->shard_num_samples, state_file);
-        // read the shuffle rng state
-        freadCheck(&loader->shuffle_rng, sizeof(mt19937_state), 1, state_file);
+    dataloader_restore_state(loader, state_file, should_shuffle, current_shard_idx,
+                             current_sample_idx, reset_train_loader);
+    if (reset_train_loader) {
+        printf0("Dataset switch: fresh training data order; optimizer, step and model RNG restored.\n");
     }
-    dataloader_resume(loader, current_shard_idx, current_sample_idx);
 
     // all done, close state file
     fcloseCheck(state_file);
@@ -1440,51 +1424,56 @@ void delete_checkpoint(const char* output_log_dir, int step, MultiGpuConfig* mul
 
 void error_usage(int status=EXIT_FAILURE) {
     fprintf(stderr, "Usage:   ./train_gpt2cu [options]\n");
-    fprintf(stderr, "Options:\n");
+    fprintf(stderr, "Course preset (default): fresh d12, muP, 12 heads, reference 192, attention multiplier 4.\n");
+    fprintf(stderr, "Tune width (-1c), depth (-1d), base LR (-l), tokens (-nt), global batch (-d), decay (-c), seed (-se).\n");
+    fprintf(stderr, "Options (defaults below are for the course preset):\n");
+    fprintf(stderr, "  -cp <int>   course preset: 1 (default); 0 restores legacy defaults before explicit overrides\n");
     // file system input / output
-    fprintf(stderr, "  -i <string> train data filename pattern (default = dev/data/tinyshakespeare/tiny_shakespeare_train.bin)\n");
-    fprintf(stderr, "  -j <string> val data filename pattern (default = dev/data/tinyshakespeare/tiny_shakespeare_val.bin)\n");
-    fprintf(stderr, "  -e <string> input .bin filename or descriptor, see code comments as docs. (default = gpt2_124M_bf16.bin)\n");
+    fprintf(stderr, "  -i <string> train data filename pattern (default = data/pretraining/climbmix_students_train_*.bin)\n");
+    fprintf(stderr, "  -j <string> val data filename pattern (default = data/seed-validation-v1/balanced_*.bin)\n");
+    fprintf(stderr, "  -e <string> input .bin filename or descriptor (default = d12, random initialization)\n");
     fprintf(stderr, "  -o <string> output log dir (default = NULL, no logging)\n");
     fprintf(stderr, "  -lg <int>   log gpu info every x steps (default = -1; disabled)\n");
-    fprintf(stderr, "  -n <int>    write optimization checkpoints every how many steps? (default 0, don't)\n");
-    fprintf(stderr, "  -nk <int>   max number of checkpoints to keep in the directory, removing old ones (0 = disable, default)\n");
+    fprintf(stderr, "  -n <int>    checkpoint interval in updates (default 1000; 0 disables; requires -o)\n");
+    fprintf(stderr, "  -nk <int>   step-based retention window in checkpoint intervals (default 2; 0 keeps all)\n");
     fprintf(stderr, "  -nm <int>   every how many step checkpoints are considered major? major checkpoints never get deleted.\n");
     fprintf(stderr, "  -y <int>    resume optimization found inside output log dir? (0=restart/overwrite, 1=resume/append)\n");
+    fprintf(stderr, "  -rd <int>   reset training data loader on full checkpoint resume (1=new dataset; default 0)\n");
     // token layout for each step of the optimization
-    fprintf(stderr, "  -b <int>    (per-GPU, micro) batch size B (default = 4)\n");
-    fprintf(stderr, "  -t <int>    sequence length T (default = 1024)\n");
-    fprintf(stderr, "  -d <int>    total desired batch size (default = B * T * num_processes, i.e. no grad accumulation\n");
-    // workload (number of steps)
-    fprintf(stderr, "  -x <int>    max_steps of optimization to run (-1 (default) = disable, run 1 epoch)\n");
-    fprintf(stderr, "  -ss <int>   absolute starting step, overridden by checkpoint resume (default 0)\n");
-    fprintf(stderr, "  -es <int>   stop at this absolute step; keep full -x LR schedule (default -1)\n");
+    fprintf(stderr, "  -b <int>    (per-GPU, micro) batch size B (default = 8)\n");
+    fprintf(stderr, "  -t <int>    sequence length T (default = 2048; fresh course models support 2048)\n");
+    fprintf(stderr, "  -d <int>    global tokens per update (default = 114688; -1 derives B*T*ranks)\n");
+    // workload (tokens; converted to optimizer steps internally)
+    fprintf(stderr, "  -nt <int64> optional full token budget instead of -x; rounded up to global batches\n");
+    fprintf(stderr, "  -et <int64> stop at this total token count, preserving the full LR schedule; rounded up to global batches\n");
+    fprintf(stderr, "  -se <int>   initialization seed, 0..2147483647 (default 42); data order unchanged; ignored for checkpoint weights\n");
     fprintf(stderr, "  -1d <int>   override descriptor layer count\n");
     fprintf(stderr, "  -1c <int>   override descriptor channel count\n");
-    fprintf(stderr, "  -1h <int>   override descriptor attention head count\n");
-    fprintf(stderr, "  -mb <int>   muP reference width; derives -mm or checks an explicit -mm\n");
+    fprintf(stderr, "  -1h <int>   advanced head-count override (course default 12, fixed across widths)\n");
+    fprintf(stderr, "  -mb <int>   advanced muP reference width (course default 192); derives -mm\n");
     fprintf(stderr, "  -id/-iv <string> aliases for -i/-j training/validation data patterns\n");
-    fprintf(stderr, "  -it <string> tokenizer path (default gpt2_tokenizer.bin)\n");
+    fprintf(stderr, "  -it <string> tokenizer path (default data/gpt2_tokenizer.bin)\n");
     fprintf(stderr, "  -ih <string> HellaSwag path (default dev/data/hellaswag/hellaswag_val.bin)\n");
     fprintf(stderr, "  --help      display this help without initializing CUDA\n");
     // optimization
-    fprintf(stderr, "  -k <string> learning rate scheduler (default = cosine)\n");
-    fprintf(stderr, "  -l <float>  learning rate (default = 3e-4f)\n");
-    fprintf(stderr, "  -u <int>    learning rate warmup iterations (default = 0, no warmup)\n");
-    fprintf(stderr, "  -q <float>  learning rate decay: final fraction, at end of training (default = 1.0 (no decay))\n");
-    fprintf(stderr, "  -c <float>  weight decay (default = 0.0f)\n");
+    fprintf(stderr, "  -k <string> learning rate scheduler (default = linear)\n");
+    fprintf(stderr, "  -l <float>  base learning rate, peak for scheduled runs (REQUIRED in course mode, including resume)\n");
+    fprintf(stderr, "  -u <int>    warmup updates (default -1 = 10%% of full schedule, or zero for constant LR); 0 disables\n");
+    fprintf(stderr, "  -q <float>  final LR fraction (default = 0.0)\n");
+    fprintf(stderr, "  -wt <float> AdamW timescale at peak LR (default = 0.1); decay = 1/(LR * full updates * timescale)\n");
+    fprintf(stderr, "  -c <float>  explicit fixed base decay, overriding automatic timescale; cannot combine with -wt\n");
     fprintf(stderr, "  -sl <float> outlier stability: skip update if loss goes above this in zscore (0.0f=off)\n");
     fprintf(stderr, "  -sg <float> outlier stability: skip update if grad_norm goes above this in zscore (0.0f=off)\n");
     // muP (maximum update parametrization)
-    fprintf(stderr, "  -me <int> should enable muP? (default 0)\n");
-    fprintf(stderr, "  -mm <float> width multiplier - ratio of width to base model width (default = 1.0f)\n");
-    fprintf(stderr, "  -ma <float> tunable base attn multiplier (default = 1.0f)\n");
+    fprintf(stderr, "  -me <int> advanced parametrization switch: 1=muP (default), 0=standard\n");
+    fprintf(stderr, "  -mm <float> advanced width multiplier (normally derived as channels / 192)\n");
+    fprintf(stderr, "  -ma <float> advanced base attention multiplier (default = 4); keep fixed across widths\n");
     fprintf(stderr, "  -mc <int> should do muP coordinate check test? (default 0)\n");
     fprintf(stderr, "  -mw <int> muP coordinate check current width (default 256)\n");
     // evaluation
-    fprintf(stderr, "  -v <int>    val_loss_every, how often we evaluate val loss (default = 20)\n");
-    fprintf(stderr, "  -m <int>    val_max_steps, up to how many val batches to estimate val loss? (default = 20)\n");
-    fprintf(stderr, "  -s <int>    sample_every, how often we inference the model (default = 20)\n");
+    fprintf(stderr, "  -v <int>    validation interval in updates (default 1000; also evaluate at stop)\n");
+    fprintf(stderr, "  -m <int>    maximum validation microbatches (default 72; -1 uses all available)\n");
+    fprintf(stderr, "  -s <int>    sample_every, how often we inference the model (default = 0, disabled)\n");
     fprintf(stderr, "  -g <int>    genT, how many steps of inference we do (default = 64)\n");
     fprintf(stderr, "  -h <int>    hellaswag eval run? (default = 0)\n");
     // debugging
@@ -1492,7 +1481,7 @@ void error_usage(int status=EXIT_FAILURE) {
     // numerics
     fprintf(stderr, "  -f <int>    enable_tf32 override (default: 1, set to 0 to disable tf32)\n");
     fprintf(stderr, "  -w <int>    keep f32 copy of weights for the optimizer? (default: 1)\n");
-    fprintf(stderr, "  -ge <int>   gelu fusion: 0=none, 1=forward, 2=forward+backward (default: 2 for >=SM90, 0 for older GPUs)\n");
+    fprintf(stderr, "  -ge <int>   gelu fusion: 0=none, 1=forward, 2=forward+backward (default: 0 on all GPUs)\n");
     // memory management
     fprintf(stderr, "  -z <int>    zero_stage, Zero Optimization Stage, 0,1,2,3 (default = 0)\n");
     fprintf(stderr, "  -r <int>    recompute: less memory but less speed. (default = 1), 0|1|2 = none,gelu,gelu+ln\n");
@@ -1503,6 +1492,10 @@ void error_usage(int status=EXIT_FAILURE) {
     fprintf(stderr, "  -pi <string> nccl_init_method: tcp,fs,mpi (default = mpi)\n");
     fprintf(stderr, "  -ps <string> server_ip - used only when nccl_init_method is tcp (default = -1)\n");
     fprintf(stderr, "  -pf <string> fs_path - used only when nccl_init_method is fs (default = /tmp)\n");
+    fprintf(stderr, "Schedule and stopping in optimizer updates:\n");
+    fprintf(stderr, "  -x <int>    full schedule in updates (default 21838); -1 = one epoch; nonnegative -x conflicts with -nt\n");
+    fprintf(stderr, "  -es <int>   absolute stop step, preserving full schedule; cannot combine with -et (default -1, no early stop)\n");
+    fprintf(stderr, "  -ss <int>   advanced weights-only starting step (default 0); full resume restores saved step\n");
     exit(status);
 }
 
@@ -1510,47 +1503,55 @@ void error_usage(int status=EXIT_FAILURE) {
 // main training loop
 int main(int argc, char *argv[]) {
     // read in the (optional) command line arguments
-    const char* train_data_pattern = "dev/data/tinyshakespeare/tiny_shakespeare_train.bin";
-    const char* val_data_pattern = "dev/data/tinyshakespeare/tiny_shakespeare_val.bin";
-    const char* load_filename = "gpt2_124M_bf16.bin"; // bf16 weights of the model
-    const char* tokenizer_path = "gpt2_tokenizer.bin";
+    const int course_preset = course_preset_from_args(argc, argv);
+    const char* train_data_pattern = course_preset ? "data/pretraining/climbmix_students_train_*.bin" : "dev/data/tinyshakespeare/tiny_shakespeare_train.bin";
+    const char* val_data_pattern = course_preset ? "data/seed-validation-v1/balanced_*.bin" : "dev/data/tinyshakespeare/tiny_shakespeare_val.bin";
+    const char* load_filename = course_preset ? "d12" : "gpt2_124M_bf16.bin";
+    const char* tokenizer_path = course_preset ? "data/gpt2_tokenizer.bin" : "gpt2_tokenizer.bin";
     const char* hellaswag_path = "dev/data/hellaswag/hellaswag_val.bin";
-    const char* lr_scheduler_type = "cosine";
+    const char* lr_scheduler_type = course_preset ? "linear" : "cosine";
     const char* output_log_dir = NULL;
-    int checkpoint_every = 0; // write checkpoints every how many steps?
-    int checkpoints_keep = 0; // how long checkpoint history do we keep? (in units of checkpoints)
+    int checkpoint_every = course_preset ? 1000 : 0; // write checkpoints every how many steps?
+    int checkpoints_keep = course_preset ? 2 : 0; // step-based retention window, in checkpoint intervals
     int major_checkpoint_every = 0; // major checkpoints never get deleted when maintaining history
     int resume = 0; // resume the optimization, if one is found inside output_log_dir?
-    int B = 4; // batch size
-    int T = 1024; // sequence length max
-    int total_batch_size = -1; // will be calculated down below later, if not provided
-    float learning_rate = 3e-4f;
+    int reset_train_loader = 0;
+    int B = course_preset ? 8 : 4; // per-GPU microbatch
+    int T = course_preset ? 2048 : 1024; // sequence length max
+    int total_batch_size = course_preset ? 114688 : -1;
+    float learning_rate = course_preset ? 0.0f : 3e-4f; // course mode requires explicit -l
+    bool learning_rate_set = false;
     int log_gpu_every = -1;
-    int warmup_iterations = 0;
-    float final_learning_rate_frac = 1.0f; // final fraction of learning rate, at end of training
-    float weight_decay = 0.0f;
+    int warmup_iterations = course_preset ? -1 : 0; // -1 resolves after the full horizon is known
+    float final_learning_rate_frac = course_preset ? 0.0f : 1.0f;
+    float weight_decay = 0.0f; // resolved after the full schedule is known
+    float weight_decay_timescale = course_preset ? 0.1f : -1.f;
+    bool weight_decay_set = false, weight_decay_timescale_set = false;
     float skip_update_lossz = 0.0f; // skip update if loss goes above this in zscore
     float skip_update_gradz = 0.0f; // skip update if grad_norm goes above this in zscore
-    int val_loss_every = 20; // every how many steps do we eval validation loss?
-    int val_max_steps = 20; // how many batches max do we eval for validation loss?
-    int sample_every = 20; // every how many steps to do inference?
+    int val_loss_every = course_preset ? 1000 : 20; // every how many steps do we eval validation loss?
+    int val_max_steps = course_preset ? 72 : 20; // how many batches max do we eval for validation loss?
+    int sample_every = course_preset ? 0 : 20;
     int genT = 64; // number of steps of inference we will do
     int overfit_single_batch = 0; // useful for debugging, 1 = only load a single data batch once
     int max_steps = -1;
+    bool max_steps_set = false; // explicit -x -1 requests one dataset epoch
+    long long token_budget = -1;
+    long long early_stopping_tokens = -1;
     int start_step = 0;
     int early_stopping_steps = -1;
     ModelOptions model_options = {};
     bool load_filename_set = false;
     int override_enable_tf32 = 1;
     int use_master_weights = 1;
-    int gelu_fusion = -1; // 0 = none, 1 = forward, 2 = forward+backward (-1 => per-GPU default)
+    int gelu_fusion = -1; // 0 = none, 1 = forward, 2 = forward+backward (-1 => default 0)
     int recompute = 1; // recompute during backward setting, 0 = none, 1 = recompute gelu
     int zero_stage = 0; // Zero Optimization Stage for Multi-GPU training
     int hellaswag_eval = 0;
     // muP settings
-    int use_mup = 0;  // muP or SP (standard parametrization)
+    int use_mup = course_preset ? 1 : 0;
     float mup_width_mult = 1.f;  // muP width multiplier
-    float mup_base_attn_mult = 1.f;  // muP base attention multiplier
+    float mup_base_attn_mult = course_preset ? 4.f : 1.f;
     int mup_coord_check = 0;  // should do muP coordinate check? tests for correctness of muP
     int mup_coord_check_width = 256;
     // multi-node settings
@@ -1566,21 +1567,27 @@ int main(int argc, char *argv[]) {
         if (argv[i][0] != '-') { error_usage(); } // must start with dash
         if (!(strlen(argv[i]) == 2 || strlen(argv[i]) == 3)) { error_usage(); } // must be -x[y] (one dash, one or two letters)
         // read in the args
-        if (strcmp(argv[i], "-i") == 0) { train_data_pattern = argv[i+1]; }
+        if (strcmp(argv[i], "-cp") == 0) { /* resolved before applying explicit overrides */ }
+        else if (strcmp(argv[i], "-i") == 0) { train_data_pattern = argv[i+1]; }
         else if (strcmp(argv[i], "-j") == 0) { val_data_pattern = argv[i+1]; }
         else if (strcmp(argv[i], "-e") == 0) { load_filename = argv[i+1]; load_filename_set = true; }
         else if (strcmp(argv[i], "-o") == 0) { output_log_dir = argv[i+1]; }
         else if (strcmp(argv[i], "-n") == 0) { checkpoint_every = parse_int(argv[i], argv[i+1]); }
         else if (strcmp(argv[i], "-y") == 0) { resume = parse_int(argv[i], argv[i+1]); }
+        else if (strcmp(argv[i], "-rd") == 0) { reset_train_loader = parse_int(argv[i], argv[i+1]); }
         else if (strcmp(argv[i], "-b") == 0) { B = parse_int(argv[i], argv[i+1]); } // Per-GPU (micro) batch size
         else if (strcmp(argv[i], "-t") == 0) { T = parse_int(argv[i], argv[i+1]); }
         else if (strcmp(argv[i], "-d") == 0) { total_batch_size = parse_int(argv[i], argv[i+1]); }
-        else if (strcmp(argv[i], "-l") == 0) { learning_rate = parse_float(argv[i], argv[i+1]); }
+        else if (strcmp(argv[i], "-l") == 0) { learning_rate = parse_float(argv[i], argv[i+1]); learning_rate_set = true; }
         else if (strcmp(argv[i], "-lg") == 0) { log_gpu_every = parse_int(argv[i], argv[i+1]); }
         else if (strcmp(argv[i], "-u") == 0) { warmup_iterations = parse_int(argv[i], argv[i+1]); }
         else if (strcmp(argv[i], "-q") == 0) { final_learning_rate_frac = parse_float(argv[i], argv[i+1]); }
-        else if (strcmp(argv[i], "-c") == 0) { weight_decay = parse_float(argv[i], argv[i+1]); }
-        else if (strcmp(argv[i], "-x") == 0) { max_steps = parse_int(argv[i], argv[i+1]); }
+        else if (strcmp(argv[i], "-c") == 0) { weight_decay = parse_float(argv[i], argv[i+1]); weight_decay_set = true; }
+        else if (strcmp(argv[i], "-wt") == 0) { weight_decay_timescale = parse_float(argv[i], argv[i+1]); weight_decay_timescale_set = true; }
+        else if (strcmp(argv[i], "-x") == 0) { max_steps = parse_int(argv[i], argv[i+1]); max_steps_set = true; }
+        else if (strcmp(argv[i], "-nt") == 0) { token_budget = parse_token_budget("-nt requires a positive integer token budget", argv[i+1]); }
+        else if (strcmp(argv[i], "-et") == 0) { early_stopping_tokens = parse_token_budget("-et requires a positive integer token count", argv[i+1]); }
+        else if (strcmp(argv[i], "-se") == 0) { model_options.initialization_seed = parse_int(argv[i], argv[i+1]); }
         else if (strcmp(argv[i], "-v") == 0) { val_loss_every = parse_int(argv[i], argv[i+1]); }
         else if (strcmp(argv[i], "-m") == 0) { val_max_steps = parse_int(argv[i], argv[i+1]); }
         else if (strcmp(argv[i], "-s") == 0) { sample_every = parse_int(argv[i], argv[i+1]); }
@@ -1620,6 +1627,16 @@ int main(int argc, char *argv[]) {
         else if (strcmp(argv[i], "-mb") == 0) { model_options.reference_width = parse_positive_int(argv[i], argv[i+1]); }
         else { error_usage(); }
     }
+    model_options.course_defaults = course_preset && !mup_coord_check;
+    require_config(!course_preset || learning_rate_set,
+                   "Course training requires an explicit learning rate: -l VALUE (also on resume)");
+    // Apply the course horizon only when neither budget was supplied. Explicit
+    // -x -1 keeps one-epoch behavior; -nt retains whole-global-batch rounding.
+    if (course_preset && !max_steps_set && token_budget == -1) { max_steps = 21838; }
+    require_config(!(weight_decay_set && weight_decay_timescale_set), "Use either -wt timescale or -c fixed decay, not both");
+    require_config(!weight_decay_timescale_set || weight_decay_timescale > 0, "-wt must be positive");
+    if (weight_decay_set) { weight_decay_timescale = -1.f; }
+    if (course_preset && !use_mup && !model_options.attn_set) { mup_base_attn_mult = 1.f; }
     if (mup_coord_check) {
         require_config(!load_filename_set || !ends_with_bin(load_filename), "Coordinate checks require a descriptor, not checkpoint weights");
         if (!load_filename_set) { load_filename = "d2"; }
@@ -1643,9 +1660,15 @@ int main(int argc, char *argv[]) {
     require_config(val_loss_every > 0 && (val_max_steps == -1 || val_max_steps > 0), "Invalid validation interval/count");
     require_config(checkpoint_every >= 0 && checkpoints_keep >= 0 && major_checkpoint_every >= 0, "Invalid checkpoint interval/retention");
     require_config(resume == 0 || (resume == 1 && output_log_dir), "-y 1 requires -o");
-    require_config(warmup_iterations >= 0 && learning_rate >= 0 && weight_decay >= 0 &&
+    require_config(reset_train_loader == 0 || (reset_train_loader == 1 && resume == 1),
+                   "-rd must be 0 or 1; -rd 1 requires full checkpoint resume (-y 1)");
+    require_config(warmup_iterations >= -1 && learning_rate >= 0 && weight_decay >= 0 &&
                    final_learning_rate_frac >= 0 && final_learning_rate_frac <= 1, "Invalid optimizer/schedule settings");
     require_config(valid_scheduler(lr_scheduler_type), "Unknown learning rate scheduler");
+    require_config(model_options.initialization_seed >= 0, "-se must be nonnegative");
+    require_config(token_budget == -1 || max_steps == -1, "Use either -nt tokens or -x steps, not both");
+    require_config(early_stopping_tokens == -1 || early_stopping_steps == -1,
+                   "Use either -et tokens or -es steps, not both");
     if ((model_options.layers || model_options.channels || model_options.heads) && !load_filename_set && !mup_coord_check) {
         load_filename = "d12"; // architecture flags request random initialization
     }
@@ -1653,7 +1676,7 @@ int main(int argc, char *argv[]) {
     common_start(override_enable_tf32, false); // common init code for train/test/profile
 
     // should do a bit more error checking here
-    assert(warmup_iterations >= 0);
+    assert(warmup_iterations >= -1);
     if (output_log_dir != NULL) {
         assert(strlen(output_log_dir) < 400); // careful bunch of hardcoded snprintf around this
     }
@@ -1681,9 +1704,12 @@ int main(int argc, char *argv[]) {
     printf0("| total batch size      | %-50d |\n", total_batch_size);
     printf0("| LR scheduler          | %-50s |\n", lr_scheduler_type);
     printf0("| learning rate (LR)    | %-50e |\n", learning_rate);
-    printf0("| warmup iterations     | %-50d |\n", warmup_iterations);
+    if (warmup_iterations == -1) {
+        printf0("| warmup iterations     | %-50s |\n", "auto: 10% of schedule (constant: 0)");
+    } else {
+        printf0("| warmup iterations     | %-50d |\n", warmup_iterations);
+    }
     printf0("| final LR fraction     | %-50e |\n", final_learning_rate_frac);
-    printf0("| weight decay          | %-50e |\n", weight_decay);
     printf0("| skip update lossz     | %-50f |\n", skip_update_lossz);
     printf0("| skip update gradz     | %-50f |\n", skip_update_gradz);
     printf0("| max_steps             | %-50d |\n", max_steps);
@@ -1715,6 +1741,8 @@ int main(int argc, char *argv[]) {
             snprintf(filename_buffer, sizeof(filename_buffer), "%s/model_%08d.bin", output_log_dir, resume_max_step);
         }
     }
+
+    require_config(!reset_train_loader || resuming, "-rd 1 requires an existing complete checkpoint");
 
     // build the GPT-2 model
     GPT2 model;
@@ -1758,13 +1786,11 @@ int main(int argc, char *argv[]) {
     dataloader_init(&train_loader, train_data_pattern, B, T, multi_gpu_config.process_rank, multi_gpu_config.num_processes, permute_train_loader);
     dataloader_init(&val_loader, val_data_pattern, B, T, multi_gpu_config.process_rank, multi_gpu_config.num_processes, 0);
     // figure out the number of training steps we will run for
-    int train_num_batches = max_steps; // passed in from command line
-    if (train_num_batches == -1) {
-        // sensible default is to train for exactly one epoch
-        size_t ntok = train_loader.num_tokens;
-        // the number of (outer loop) steps each process should take for us to reach one epoch
-        train_num_batches = ntok / total_batch_size;
-    }
+    int train_num_batches = resolve_training_steps(max_steps, token_budget, train_loader.num_tokens, total_batch_size);
+    int resolved_early_stop = resolve_early_stop_steps(early_stopping_steps, early_stopping_tokens,
+                                                     token_budget, train_num_batches, total_batch_size);
+    warmup_iterations = resolve_warmup(warmup_iterations, train_num_batches, lr_scheduler_type);
+    weight_decay = resolve_weight_decay(weight_decay, weight_decay_timescale, learning_rate, train_num_batches);
     // figure out the number of validation steps to run for
     int val_num_batches = val_max_steps; // passed in from command line
     if (val_num_batches == -1) {
@@ -1774,6 +1800,9 @@ int main(int argc, char *argv[]) {
         val_num_batches = ntok / tokens_per_fwdbwd;
     }
     printf0("| train_num_batches     | %-50d |\n", train_num_batches);
+    printf0("| resolved warmup       | %-50d |\n", warmup_iterations);
+    printf0("| weight decay          | %-50e |\n", weight_decay);
+    printf0("| decay timescale       | %-50g |\n", weight_decay_timescale); // -1 = fixed -c
     printf0("| val_num_batches       | %-50d |\n", val_num_batches);
     printf0("+-----------------------+----------------------------------------------------+\n");
 
@@ -1833,10 +1862,10 @@ int main(int argc, char *argv[]) {
     gpt2_allocate_state(&model, B, T);
     if (resuming == 1) {
         snprintf(filename_buffer, sizeof(filename_buffer), "%s/state_%08d_%05d.bin", output_log_dir, resume_max_step, multi_gpu_config.process_rank);
-        load_state(&step, &model, &train_loader, filename_buffer);
+        load_state(&step, &model, &train_loader, filename_buffer, reset_train_loader);
     }
 
-    int train_steps = training_end_step(step, train_num_batches, early_stopping_steps, warmup_iterations);
+    int train_steps = training_end_step(step, train_num_batches, resolved_early_stop, warmup_iterations);
     if (mup_coord_check && train_steps - step > 4) { train_steps = step + 4; }
     const int first_step = step;
 
@@ -1849,8 +1878,14 @@ int main(int argc, char *argv[]) {
         fprintf(run_log, "\ntrain=%s\nvalidation=%s\ntokenizer=%s\nhellaswag=%s\n", train_data_pattern, val_data_pattern, tokenizer_path, hellaswag_path);
         fprintf(run_log, "layers=%d channels=%d heads=%d max_seq_len=%d parameters=%zu\n", model.config.num_layers, model.config.channels, model.config.num_heads, model.config.max_seq_len, model.num_parameters);
         fprintf(run_log, "mup=%d width_mult=%.9g reference_width=%.9g attention_mult=%.9g\n", model.use_mup, model.mup_width_mult, model.mup_reference_width, model.mup_base_attn_mult);
+        fprintf(run_log, "course_preset=%d requested_tokens=%lld schedule_tokens=%lld\n", course_preset, token_budget, (long long)train_num_batches * total_batch_size);
+        fprintf(run_log, "requested_early_tokens=%lld stop_tokens=%lld\n", early_stopping_tokens, (long long)train_steps * total_batch_size);
+        if (resuming || ends_with_bin(load_filename)) fprintf(run_log, "initialization_seed=checkpoint\n");
+        else fprintf(run_log, "initialization_seed=%d\n", model_options.initialization_seed);
         fprintf(run_log, "scheduler=%s lr=%.9g warmup=%d final_fraction=%.9g weight_decay=%.9g\n", lr_scheduler_type, learning_rate, warmup_iterations, final_learning_rate_frac, weight_decay);
-        fprintf(run_log, "start_step=%d stop_step=%d schedule_steps=%d early_stop=%d resume=%d\n", step, train_steps, train_num_batches, early_stopping_steps, resuming);
+        fprintf(run_log, "decay_mode=%s decay_timescale=%.9g\n", weight_decay_timescale > 0 ? "timescale" : "fixed", weight_decay_timescale);
+        fprintf(run_log, "start_step=%d stop_step=%d schedule_steps=%d early_stop=%d resume=%d\n", step, train_steps, train_num_batches, resolved_early_stop, resuming);
+        fprintf(run_log, "reset_train_loader=%d\n", reset_train_loader);
         fprintf(run_log, "batch=%d sequence=%d total_batch=%d accumulation=%d ranks=%d zero_stage=%d\n", B, T, total_batch_size, grad_accum_steps, multi_gpu_config.num_processes, multi_gpu_config.zero_stage);
         fprintf(run_log, "checkpoint_every=%d keep=%d major_every=%d val_every=%d val_batches=%d sample_every=%d genT=%d\n", checkpoint_every, checkpoints_keep, major_checkpoint_every, val_loss_every, val_num_batches, sample_every, genT);
         fprintf(run_log, "device=%s precision=%s master_weights=%d recompute=%d gelu_fusion=%d lossz=%g gradz=%g overfit=%d\n", deviceProp.name, precision_str, use_master_weights, recompute, gelu_fusion, skip_update_lossz, skip_update_gradz, overfit_single_batch);
@@ -1858,6 +1893,8 @@ int main(int argc, char *argv[]) {
     }
     printf0("muP=%d width_mult=%g reference_width=%g attention_mult=%g; steps %d..%d (schedule %d)\n",
             model.use_mup, model.mup_width_mult, model.mup_reference_width, model.mup_base_attn_mult, step, train_steps, train_num_batches);
+    printf0("tokens: stop %lld / schedule %lld (whole global batches)\n",
+            (long long)train_steps * total_batch_size, (long long)train_num_batches * total_batch_size);
 
     // init an OutlierDetector the training loss
     OutlierDetector loss_outlier_detector, grad_norm_outlier_detector;

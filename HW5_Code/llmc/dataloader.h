@@ -236,6 +236,40 @@ void dataloader_resume(DataLoader *loader, size_t current_shard_idx, size_t curr
     dataloader_load_shard_(loader, (int) loader->current_shard_idx);
 }
 
+// Read the loader tail of a version-1 optimizer checkpoint. A dataset switch
+// deliberately keeps the newly initialized loader (including its seed/order).
+// The caller has already restored the optimizer and model RNG independently.
+void dataloader_restore_state(DataLoader *loader, FILE *state_file, int should_shuffle,
+                              size_t current_shard_idx, size_t current_sample_idx,
+                              int reset_for_new_dataset) {
+    if (reset_for_new_dataset) { return; }
+    assert(should_shuffle == loader->should_shuffle);
+    assert(current_shard_idx < loader->glob_result.gl_pathc);
+    if (should_shuffle) {
+        size_t shard_count;
+        freadCheck(&shard_count, sizeof(size_t), 1, state_file);
+        assert(shard_count == loader->glob_result.gl_pathc);
+        freadCheck(loader->shard_indices, sizeof(int), shard_count, state_file);
+        for (size_t i = 0; i < shard_count; ++i) {
+            assert(loader->shard_indices[i] >= 0 && (size_t)loader->shard_indices[i] < shard_count);
+        }
+        // The saved shard can have a different length from the first shard.
+        // Open it before validating or allocating the saved sample permutation.
+        dataloader_resume(loader, current_shard_idx, current_sample_idx);
+        size_t sample_count;
+        freadCheck(&sample_count, sizeof(size_t), 1, state_file);
+        assert(sample_count == loader->shard_num_samples);
+        free(loader->intra_shard_indices);
+        loader->intra_shard_indices = (int*)mallocCheck(sample_count * sizeof(int));
+        freadCheck(loader->intra_shard_indices, sizeof(int), sample_count, state_file);
+        freadCheck(&loader->shuffle_rng, sizeof(mt19937_state), 1, state_file);
+    } else {
+        dataloader_resume(loader, current_shard_idx, current_sample_idx);
+    }
+    // Equality is valid: the next batch advances to the next shard/epoch.
+    assert(current_sample_idx <= loader->shard_num_samples);
+}
+
 void dataloader_free(DataLoader *loader) {
     free(loader->buffer);
     free(loader->inputs);

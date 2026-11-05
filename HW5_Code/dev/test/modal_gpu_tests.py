@@ -232,7 +232,7 @@ def package_sources():
 @app.local_entrypoint()
 def main(suite: str = 'single', min_lr_exponent: int = -16, max_lr_exponent: int = -7, prior_run: str = '',
          scheduler: str = 'constant', warmup_steps: int = 0, final_lr_fraction: float = 1.0, weight_decay: float = 0.0):
-    if suite not in {'single', 'multi', 'baseline', 'focused', 'cudnn_diagnostic', 'benchmark', 'sweep', 'mup_gradient', 'mup_fix_training'}:
+    if suite not in {'single', 'multi', 'baseline', 'focused', 'cudnn_diagnostic', 'benchmark', 'sweep', 'mup_gradient', 'mup_fix_training', 'course_preset'}:
         raise ValueError('Invalid suite')
     if not -30 <= min_lr_exponent <= max_lr_exponent <= 4:
         raise ValueError('Invalid learning-rate range')

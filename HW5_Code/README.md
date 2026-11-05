@@ -7,6 +7,17 @@ standard/μP learning-rate sweeps, schedule/decay comparisons, and training-hori
 experiments. Run its commands from this `HW5_Code/` directory. Standard
 parametrization and μP share the same trainer (`-me 0` and `-me 1`).
 
+The CUDA trainer defaults to the **course preset**: fresh 12-layer/768-channel
+μP, fixed 12 heads, reference width 192, attention multiplier 4, context 2048,
+microbatch 8, 114688 tokens/update, a 21838-update horizon, linear decay and 10% warmup.
+**Supply `-l LR` explicitly on every invocation, including resume.** Weight decay is derived from
+AdamW timescale `-wt 0.1`; explicit `-c` selects fixed decay. Width scaling is automatic. See the
+[student knobs and examples](doc/mup/exercise.md#course-preset-and-student-knobs)
+for width, depth, base LR, tokens, global batch, decay, microbatch, and initialization
+seed. `-cp 0` restores legacy defaults for the upstream instructions below;
+explicit flags override either preset. Checkpoints retain saved architecture and
+parametrization. CPU/FP32-reference and Python trainers retain their own defaults.
+
 This snapshot includes the corrected μP gradient scaling, random tied embeddings,
 zero query initialization, configurable training controls, and reproduction tools.
 See [provenance](doc/mup/source-provenance.json),

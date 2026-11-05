@@ -1,5 +1,35 @@
 # Modal GPU integration tests
 
+## Course-preset regression checks
+
+```sh
+python3 dev/test/test_training_controls.py
+python3 dev/test/test_model_initialization.py
+modal run --detach dev/test/modal_gpu_tests.py --suite course_preset
+```
+
+The short GPU suite checks implicit fixed-head μP at widths 48/96/192/768,
+the default 124M architecture, byte-identical trained weights against the same
+recipe supplied explicitly in legacy mode, distinct initialization seeds,
+exact model/optimizer/data/RNG checkpoint resumption, metadata precedence,
+token-budget rounding, microbatch accumulation, and full-horizon warmup.
+The token-stop regression additionally compares trained weights and optimizer
+state between `-et` and equivalent legacy `-es` runs, then checks exact resumption
+to a later absolute token limit while retaining the original LR schedule.
+Run `20261104T083447Z-course_preset` passed all ten groups on one A10,
+including automatic timescale decay at two LRs and batches, exact resumption,
+and a 2048-context update with the 114688-token batch. Automatic and explicit
+decay produced byte-identical model/optimizer state. Its app
+`ap-pXpdXpMkvMcFb7n8EP1brr` stopped with zero tasks. This is a short correctness
+check, not a full-budget LR-transfer experiment.
+Run `20261104T075450Z-course_preset` passed the previous eight groups,
+including the token-stop regression. The preceding preset-only run
+`20261104T074041Z-course_preset` passed its seven groups and remains a historical artifact.
+Historical integration/parity cases explicitly use `-cp 0` to preserve their
+original defaults. Existing numerical-reference failures remain documented below.
+
+## Existing suites and source packaging
+
 The sweep coordinator saves worker call IDs before waiting for a phase, so a restarted coordinator reconnects to its existing workers. `python3 dev/test/test_sweep_recovery.py` checks this without cloud calls and rejects mismatched source/recipe metadata. A restart between spawning workers and committing their IDs remains a small unprotected window; worker-level preemption can still retry an individual worker. Source manifests include the local source commit, dirty status, and individual file hashes.
 
 `modal_gpu_tests.py` uploads the current local source (including uncommitted changes) and the pinned original μP baseline. It runs disposable GPU workers, downloads text/JSON reports, and persists reports and downloaded test fixtures in the Modal volume `llmc-integration-test-results`. It does not upload the git directory, credentials, or existing weights/logs.

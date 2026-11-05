@@ -32,7 +32,7 @@ Use exactly the same tokenized training/validation data and token order for all 
 3. Evaluate that chosen LR on the 124M model without retuning it. Use the rest of the 124M LR curve only to quantify transfer regret: selected-LR validation loss minus the best measured target loss.
 4. Plot training-loss versus log2 LR as in the supplied reference (mean of the last 20 training losses), and plot final held-out validation loss separately. Display SP and μP side by side, one curve per width.
 5. Report the optimum at each width, shifts in log2 LR, target loss regret, and divergence/NaN runs. If the optimum lies at a grid boundary, extend the grid before interpreting it. Do not hide failed runs or interpolate through them as successful measurements.
-6. Stable μP minima and smaller transfer regret than SP support width transfer for this setup. Shifted μP minima are evidence to investigate; code matching the original branch is not proof of the μP claim. Confirm promising results across multiple seeds and a longer token budget. The current executable fixes seed 42, so multi-seed confirmation needs explicit seed support or pre-generated initialization fixtures.
+6. Stable μP minima and smaller transfer regret than SP support width transfer for this setup. Shifted μP minima are evidence to investigate; code matching the original branch is not proof of the μP claim. Confirm promising results across multiple seeds and a longer token budget. These sweep drivers use initialization seed 42. The course trainer now exposes `-se` for repeated initializations while keeping data order fixed.
 
 ## Prepare a manifest
 

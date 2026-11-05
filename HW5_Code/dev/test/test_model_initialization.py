@@ -95,6 +95,34 @@ int main() {
     assert(custom.num_parameters_bytes == original.num_parameters_bytes);
     assert(!memcmp(custom.params_memory, original.params_memory, custom.num_parameters_bytes));
     free(custom.params_memory); free(original.params_memory);
+    // The real initializer must repeat a seed exactly and change actual weights
+    // for another seed, while preserving muP's zero-query initialization.
+    GPT2 seeded[3] = {};
+    ModelOptions seed_opts = {};
+    seed_opts.layers = 2; seed_opts.channels = 48; seed_opts.course_defaults = true;
+    for (int i = 0; i < 3; i++) {
+        seeded[i].use_mup = 1; seeded[i].mup_base_attn_mult = 4;
+        seed_opts.initialization_seed = i == 2 ? 43 : 42;
+        gpt_build_from_descriptor(&seeded[i], "d12", 256, 0, &seed_opts);
+        assert(seeded[i].config.num_heads == 12 && seeded[i].mup_width_mult == 0.25f);
+        assert(seeded[i].mup_reference_width == 192);
+        assert(seeded[i].config.max_seq_len == 2048);
+        size_t offset = 0;
+        for (int j = 0; j < 4; j++) offset += seeded[i].param_elements[j];
+        float* weights = (float*)seeded[i].params_memory;
+        for (int l = 0; l < 2; l++) for (int j = 0; j < 48*48; j++)
+            assert(weights[offset+l*3*48*48+j] == 0);
+    }
+    assert(!memcmp(seeded[0].params_memory,seeded[1].params_memory,seeded[0].num_parameters_bytes));
+    assert(memcmp(seeded[0].params_memory,seeded[2].params_memory,seeded[0].num_parameters_bytes));
+    gpt2_write_to_checkpoint(&seeded[0], "course-context.bin");
+    GPT2 course_restored = {};
+    gpt2_build_from_checkpoint(&course_restored, "course-context.bin");
+    assert(course_restored.config.max_seq_len == 2048);
+    assert(course_restored.num_parameters_bytes == seeded[0].num_parameters_bytes);
+    assert(!memcmp(course_restored.params_memory, seeded[0].params_memory, seeded[0].num_parameters_bytes));
+    free(course_restored.params_memory);
+    for (auto& model : seeded) free(model.params_memory);
     puts("PASS: five-width SP parity; muP changes only WTE to SP's random embedding; zero queries and checkpoint round trips");
 }
 '''

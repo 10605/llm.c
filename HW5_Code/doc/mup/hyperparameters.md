@@ -21,7 +21,7 @@ Compared before editing:
 | `FORCE_NVCC_O` build control | Add the optimization-level override, default 3. |
 | Scheduler implementations | All four implementations (`cosine`, `linear`, `constant`, `wsd`) are identical; retain the target header. |
 | Checkpoint frequency, retention, completion markers | Already present and effectively identical. Retain `-n`, `-nk`, `-nm`, per-rank state and DONE barriers. Final early-stop iteration goes through evaluation and checkpointing. |
-| Source-only defaults | Keep the target defaults; see below. |
+| Source-only defaults | The initial integration kept target defaults. The later course preset below selects the student defaults. |
 | Attention, encoder, layernorm, GELU, matmul and cuDNN differences | The relevant target differences implement μP and coordinate instrumentation. Retain those kernels and signatures. |
 | Source `cuda_common.h` rename | Adapt the allocation helper to the target error-checking function; no rename needed. |
 | Source inference executable and greedy tokenizer encoding | Inspected; separate prompt-inference functionality is outside this training integration. It duplicates SP model code, and its encoder can fail to advance on unmatched text. No dependency from the training controls requires either. |
@@ -32,57 +32,91 @@ The integration retained the target's AdamW, matrix-group LR and decay scaling, 
 
 ## Architecture and μP reference width
 
-Descriptors `d12`, `gpt2:d12`, `gpt3:c768`, etc. keep their meanings. Overrides replace only explicitly supplied dimensions. Without `-e`, architecture flags select random initialization based on `d12`; with no architecture flags the original default remains `gpt2_124M_bf16.bin`. With a checkpoint, supplied dimensions must match its dimensions.
+The course preset (`-cp 1`, the default) initializes fresh weights from `d12` and fixes the head count at 12. Descriptors `d12`, `gpt2:d12`, `gpt3:c768`, etc. retain their layer/channel settings; `-1d` and `-1c` override them. An explicit `-1h` overrides the course head count for advanced experiments. With a checkpoint, saved dimensions take precedence over implicit defaults and supplied dimensions must match. Under `-cp 0`, descriptor head counts and the old `gpt2_124M_bf16.bin` default are retained; architecture flags without `-e` still select random initialization based on `d12`.
 
 Channels must be divisible by heads and aligned to 128-bit kernel loads: multiples of 8 for BF16 or 4 for FP32. Existing CUDA attention also requires sequence lengths divisible by 4. Memory and backend constraints still apply.
 
-`-mb N` specifies a reference width. The effective multiplier is `channels / N`. If `-mm` is also explicit, it must agree. An explicit `-mm` without `-mb` defines the implicit reference `channels / multiplier`, which must be a positive integer. An explicit multiplier is never silently replaced. Custom μP channel counts require one of these two choices. Descriptor-only runs retain the original multiplier default of 1.
+`-mb N` specifies a reference width. The effective multiplier is `channels / N`. Fresh course μP models default to reference width 192, so students only need to set `-1c`. If `-mm` is also explicit, it must agree. An explicit `-mm` without `-mb` defines the reference `channels / multiplier`, which must be a positive integer. An explicit multiplier is never silently replaced. Under `-cp 0`, custom μP channel counts require explicit `-mb` or `-mm`, and descriptor-only runs retain the original multiplier default of 1. Saved checkpoint metadata takes precedence over implicit course defaults.
 
-`-ma` remains independently controlled, with the target default of 1. For example, a 128-channel reference with two heads may use `-ma 8` (sqrt(128/2)); this is not inferred automatically.
+`-ma` defaults to 4 in the course preset and 1 under `-cp 0`. Keep this value fixed across widths in a transfer experiment. The course value corresponds to sqrt(192/12); it is not recomputed from each model's channels or head count. For example, an advanced 128-channel reference with two heads may explicitly use `-ma 8` (sqrt(128/2)).
 
 Coordinate checks keep `-mc` and `-mw`, default to two layers/two heads, and accept explicit architecture overrides. Conflicting `-mw`/`-1c` values fail. Checks collect up to four updates using a buffer sized for the effective depth and indices relative to the run's starting step. The existing filenames and default 76-float layout are preserved. Only rank zero writes the file. Separate GELU statistics are enforced with recomputation/fusion disabled. As before, coordinate checks require a non-cuDNN build and one microbatch per optimizer step. Custom depths require a corresponding layout when interpreting the binary with the existing visualization script.
 
 ## Steps, continuation and checkpoints
 
-For `-x 100 -ss 20 -es 30`, updates use steps 20 through 29, Adam times 21 through 30, and the original 100-step LR curve. Validation/checkpointing runs at step 30. `-ss` alone does not restore moments, RNG or data position; use `-y 1 -o DIR` for full continuation. A saved step overrides `-ss`. The stop must lie between the effective starting step and the full schedule length. With `-x -1`, the horizon is one dataset epoch.
+`-x` defines the full schedule in optimizer updates (course default 21838); `-es` stops at an absolute update without changing that schedule. The equivalent token interface uses `-nt TOKENS` for the full training horizon and optional `-et TOKENS` for an earlier stopping point. Both round up to whole global batches: `ceil(TOKENS / -d)` updates. `-et` is an absolute token count, including updates before checkpoint resumption, and must not exceed the requested `-nt` (or the effective full schedule if `-nt` is omitted). The resolved stop must lie between the starting/resumed step and the full schedule. If both rounded token limits select the same update, the full schedule completes. Requested and effective token limits are recorded in `run_parameters.txt`.
+
+The course default `-u -1` resolves to 10% of the full schedule (rounded down), or zero for a constant scheduler. Explicit `-u 0` disables warmup. Early stopping changes only the execution boundary; it does not shorten warmup or decay. Use `-y 1 -o DIR` for full continuation and repeat the original schedule/batch/data settings. Remove `-et` or increase it to a later absolute token count. Keep global batch fixed on resume, since checkpoint progress is stored in optimizer steps.
+
+`-x` and `-es` express the same controls in optimizer steps. They cannot be combined with `-nt` and `-et`, respectively, when their values are nonnegative. For `-x 100 -ss 20 -es 30`, updates use steps 20 through 29, Adam times 21 through 30, and the original 100-step LR curve. Validation/checkpointing runs at step 30. `-ss` alone does not restore moments, RNG or data position. A saved step overrides `-ss`. With neither a token nor step horizon, the horizon is one dataset epoch. Token-based early stopping also works with that default horizon or an explicit legacy `-x`.
+
+`-se SEED` selects fresh-weight initialization, with values 0 through 2147483647 and default 42. It does not change the data shuffle or stochastic-rounding seeds. Loaded checkpoint weights ignore it; optimizer resumption restores saved RNG state.
 
 New model and optimizer checkpoint headers store μP enablement, width multiplier, attention multiplier, and reference width in previously unused padding. Optimizer headers additionally store ZeRO stage. Existing payload layouts and file versions are unchanged. This implementation restores the saved parametrization and rejects conflicting explicit flags, model/state mismatches, and changes of ZeRO stage. Older readers can read the payload but do not understand the μP metadata; use this integration to recover it automatically.
 
-Legacy checkpoints lack reliable parametrization metadata. For `-y 1`, explicitly provide `-me 0` for SP, or `-me 1 -mm MULT -ma MULT` for μP. These values are the caller's declaration of the legacy settings. Loading legacy weights for μP also requires those explicit settings. Ordinary legacy SP weight loading keeps working. Schedule, batch/data and optimizer controls are not restored from metadata: repeat the original values when exact continuation is desired. Process-count/rank checks remain in the existing state loader.
+Legacy checkpoints lack reliable parametrization metadata. For `-y 1`, explicitly provide `-me 0` for SP, or `-me 1 -mm MULT -ma MULT` for μP. These values are the caller's declaration of the legacy settings. Loading legacy weights for μP also requires those explicit settings. To load legacy SP weights under the course preset, specify `-me 0`; ordinary legacy SP weight loading under `-cp 0` keeps working. Schedule, batch/data and optimizer controls are not restored from metadata: repeat the original values when exact continuation is desired. Process-count/rank checks remain in the existing state loader.
 
 No optimizer checkpoint is written before the first optimizer initialization, including zero-update runs and runs started at a checkpoint boundary with `-ss`. This avoids serializing uninitialized moments/master weights. Loading a master-weight state with `-w 0` now skips the stored master payload before reading loader state. Timing averages use the actual iterations executed, excluding the first iteration in this process.
 
 Retention retains the target's step-based policy: delete `step - nk*n`, unless major. It is not a strict directory-wide count; off-grid early-stop checkpoints can leave additional files. `-nm` major checkpoints remain exempt.
 
+Full resume with `-rd 1` starts the training loader at the beginning of a new dataset while preserving weights, optimizer, RNG and step. Default `-rd 0` preserves the loader position; omit `-rd` on later resumes of the same trial. It does not restart the LR schedule. The [student guide](exercise.md#four-experimental-strategies) maps flags to architecture, horizon, dataset-size and Hyperband experiments.
+
 ## Defaults
 
 After the November 3 initialization diagnosis, newly initialized μP models keep random tied token embeddings (standard deviation 0.02) and zero query matrices. Existing checkpoints load their stored weights unchanged. The Python initializer now dispatches hidden matrices and query slices by explicit module markers instead of incorrectly treating `_get_name()` as a parameter path. This aligns its initialization rules with CUDA; the independent official-reference tests remain separate from the Python training program.
 
-Existing target defaults are preserved: SP, μP multipliers 1, microbatch 4, sequence 1024, automatic total batch, LR 3e-4, no warmup, final LR fraction 1, decay 0, one epoch, no logging/checkpointing, validation/sample interval 20, ZeRO 0, HellaSwag disabled, BF16, and cuDNN disabled. The source's FineWeb paths, microbatch 64, total batch 524288, LR 6e-4, warmup 470, decay 0.1, 4725 steps, checkpoint interval 1000, ZeRO 1 and HellaSwag-on defaults were not adopted.
+The CUDA trainer's course preset defaults to fresh 12-layer/768-channel μP,
+12 heads, reference width 192, attention multiplier 4, initialization seed 42,
+microbatch 8, context/positional capacity 2048 and 114688 global tokens/update.
+**`-l` is required, including on resume; no seed LR is embedded in the preset.**
+The full default schedule is 21838 updates. Explicit `-x -1` uses one dataset
+epoch; explicit `-nt` supplies a token budget instead. Linear decay, automatic
+10% warmup (`-u -1`, normally 2183 updates) and final fraction zero are default.
+AdamW timescale `-wt 0.1` derives base decay as
+`1/(peak_base_lr * full_schedule_updates * timescale)`. Explicit `-c` selects
+fixed decay instead and cannot be combined with explicit `-wt`. Early stopping
+preserves the full-horizon warmup and decay calculation.
 
-New defaults are `-ss 0`, `-es -1`, tokenizer `gpt2_tokenizer.bin`, and HellaSwag `dev/data/hellaswag/hellaswag_val.bin`. CLI names are matched exactly; unknown options, malformed numeric values and invalid combinations fail. `--help` succeeds before CUDA startup. Help now correctly names the existing `-pi`/`-pf` NCCL initialization options.
+Logging requires `-o`. Checkpointing defaults to interval 1000 and a step-based
+retention window of 2 intervals (not a strict file count); `-n 0` disables saving
+and `-nk 0` keeps all checkpoints. Validation defaults to every 1000 updates and
+up to 72 microbatches, plus the stopping point. Sampling and HellaSwag remain
+disabled. ZeRO 0, BF16 and non-cuDNN remain the build/runtime defaults; backend
+selection is an explicit build choice. Training kernels are unchanged by these
+CLI-default updates.
+
+Course paths are `data/pretraining/climbmix_students_train_*.bin`,
+`data/seed-validation-v1/balanced_*.bin` and `data/gpt2_tokenizer.bin`.
+`-cp 0` preserves legacy defaults: SP, checkpoint input, TinyShakespeare paths,
+tokenizer `gpt2_tokenizer.bin`, microbatch 4, automatic global batch, one-epoch
+horizon, optional LR default 3e-4, no warmup, final fraction 1, fixed decay 0,
+checkpointing disabled, validation 20/20 and sampling every 20 updates.
+Explicit flags override either preset, independent of selector position.
+
+Both presets retain `-ss 0`, `-es -1` and HellaSwag path `dev/data/hellaswag/hellaswag_val.bin`. CLI names are matched exactly; unknown options, malformed numeric values and invalid combinations fail. `--help` succeeds before CUDA startup. Help names the existing `-pi`/`-pf` NCCL initialization options. See [the student guide](exercise.md#course-preset-and-student-knobs) for the normal course commands.
 
 ## Examples
 
-From the repository root, after building and preparing the datasets:
+From the trainer directory, after building and preparing the datasets. These explicit legacy examples preserve the original smoke-test recipe with `-cp 0`:
 
 ```sh
 make train_gpt2cu USE_CUDNN=0
 
 # Standard parametrization, custom architecture
-./train_gpt2cu -e d12 -1d 2 -1c 256 -1h 4 -me 0 \
+./train_gpt2cu -cp 0 -e d12 -1d 2 -1c 256 -1h 4 -me 0 \
   -id 'dev/data/tinyshakespeare/tiny_shakespeare_train.bin' \
   -iv 'dev/data/tinyshakespeare/tiny_shakespeare_val.bin' \
   -it gpt2_tokenizer.bin -b 2 -t 64 -x 20 -es 4 -m 2 -s 0 -o runs/sp -n 2
 
 # μP, width 256 relative to reference width 128
-./train_gpt2cu -e d12 -1d 2 -1c 256 -1h 4 -me 1 -mb 128 \
+./train_gpt2cu -cp 0 -e d12 -1d 2 -1c 256 -1h 4 -me 1 -mb 128 \
   -id 'dev/data/tinyshakespeare/tiny_shakespeare_train.bin' \
   -iv 'dev/data/tinyshakespeare/tiny_shakespeare_val.bin' \
   -it gpt2_tokenizer.bin -b 2 -t 64 -x 20 -es 4 -m 2 -s 0 -o runs/mup -n 2
 
 # Resume μP from step 4, with settings recovered from the checkpoint
-./train_gpt2cu -y 1 -o runs/mup -b 2 -t 64 -x 20 -es 8 -m 2 -s 0 -n 2
+./train_gpt2cu -cp 0 -y 1 -o runs/mup -b 2 -t 64 -x 20 -es 8 -m 2 -s 0 -n 2
 ```
 
 The short sequence is useful for smoke tests; full training normally uses the descriptor's full positional context. Create the parent `runs` directory before using these examples.
@@ -101,9 +135,9 @@ cc -O3 -I llmc -o /private/tmp/llmc_test_outlier dev/test/test_outlier_detector.
 git diff --check
 ```
 
-- 11 host test groups cover actual CLI/configuration code, flags and malformed inputs, descriptor/custom SP and μP configurations, all six coordinate widths, scheduler values, absolute stop/start bounds, metadata recovery/conflicts, and rank-aware logging. The test's resumed-step fixture is not an optimizer-resume execution.
+- 17 host test groups cover actual CLI/configuration code, course/legacy defaults and override precedence, full/early-stop token rounding, absolute token stops on resume, unchanged full-horizon warmup, initialization seeds, flags and malformed inputs, descriptor/custom SP and μP configurations, all six coordinate widths, scheduler values, absolute stop/start bounds, metadata recovery/conflicts, and rank-aware logging. The test's resumed-step fixture is not an optimizer-resume execution.
 - Initialization test executes the actual host initialization loops and model save/load functions with host memory transfers. At widths 48/96/192/384/768, SP is byte-identical to the pinned target base; μP differs only by retaining the SP random token embedding. It verifies zero queries, equivalent custom architecture, and model header/payload round trips. It requires the pinned base commit in local git history. `test_python_mup_initialization.py` separately checks the Python trainer's tied embeddings, query zeros, and hidden-matrix scales at all five widths using PyTorch.
-- Both host harnesses compile with AddressSanitizer and UndefinedBehaviorSanitizer.
+- The initialization harness additionally verifies course head/reference defaults, identical initialization with repeated seed 42 and distinct weights with seed 43. Both host harnesses compile with AddressSanitizer and UndefinedBehaviorSanitizer.
 - Existing dataloader tests pass for sequential, shuffled and simulated multi-process data partitioning. Existing outlier-detector test passes. Dataloader compilation emits two existing variable-length-array warnings under Apple Clang.
 
 ## Modal GPU validation (2026-11-03)
