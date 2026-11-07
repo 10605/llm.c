@@ -1,0 +1,5 @@
+# On AWS A10G, install torch from the cu128 index first; see README.md.
+torch==2.10.0
+numpy
+tiktoken
+datasets

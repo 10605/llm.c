@@ -104,6 +104,7 @@ typedef struct {
 } mt19937_state;
 
 void manual_seed(mt19937_state* state, unsigned int seed) {
+    state->seed_ = seed; // serialized with the dataloader; initialize even though draws do not read it
     state->MATRIX_A[0] = 0x0u;
     state->MATRIX_A[1] = 0x9908b0df;
     state->state_[0] = seed & 0xffffffff;

@@ -11,19 +11,17 @@ REMOVE_FILES = rm -f
 OUTPUT_FILE = -o $@
 CUDA_OUTPUT_FILE = -o $@
 
-# Default O3 CPU optimization level for NVCC (0 for fastest compile time)
-FORCE_NVCC_O ?= 3
-
 # NVCC flags
 # -t=0 is short for --threads, 0 = number of CPUs on the machine
-NVCC_FLAGS = --threads=0 -t=0 --use_fast_math -std=c++17 -O$(FORCE_NVCC_O)
+FORCE_NVCC_O ?= 3
+NVCC_FLAGS = -O$(FORCE_NVCC_O) -t=0 --use_fast_math -std=c++17
 NVCC_LDFLAGS = -lcublas -lcublasLt
 NVCC_INCLUDES =
 NVCC_LDLIBS =
 NCLL_INCUDES =
 NVCC_CUDNN =
 # By default we don't build with cudnn because it blows up compile time from a few seconds to ~minute
-USE_CUDNN ?= 1
+USE_CUDNN ?= 0
 
 # We will place .o files in the `build` directory (create it if it doesn't exist)
 BUILD_DIR = build
@@ -48,10 +46,8 @@ endif
 
 ifneq ($(CI),true) # if not in CI, then use the GPU query
   ifndef GPU_COMPUTE_CAPABILITY # set to defaults if: make GPU_COMPUTE_CAPABILITY=
-    ifneq ($(call file_exists_in_path, nvidia-smi),)
-      # Get the compute capabilities of all GPUs
-      # Remove decimal points, sort numerically in ascending order, and select the first (lowest) value
-      GPU_COMPUTE_CAPABILITY=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | sed 's/\.//g' | sort -n | head -n 1)
+    ifneq ($(call file_exists_in_path, __nvcc_device_query),)
+      GPU_COMPUTE_CAPABILITY = $(shell __nvcc_device_query)
       GPU_COMPUTE_CAPABILITY := $(strip $(GPU_COMPUTE_CAPABILITY))
     endif
   endif
@@ -194,6 +190,25 @@ else
   endif
 endif
 
+# Check if NCCL is available, include if so, for multi-GPU training
+ifeq ($(NO_MULTI_GPU), 1)
+  $(info → Multi-GPU (NCCL) is manually disabled)
+else
+  ifneq ($(OS), Windows_NT)
+    # Detect if running on macOS or Linux
+    ifeq ($(SHELL_UNAME), Darwin)
+      $(info ✗ Multi-GPU on CUDA on Darwin is not supported, skipping NCCL support)
+    else ifeq ($(shell dpkg -l | grep -q nccl && echo "exists"), exists)
+      $(info ✓ NCCL found, OK to train with multiple GPUs)
+      NVCC_FLAGS += -DMULTI_GPU
+      NVCC_LDLIBS += -lnccl
+    else
+      $(info ✗ NCCL is not found, disabling multi-GPU support)
+      $(info ---> On Linux you can try install NCCL with `sudo apt install libnccl2 libnccl-dev`)
+    endif
+  endif
+endif
+
 # Attempt to find and include OpenMPI on the system
 OPENMPI_DIR ?= /usr/lib/x86_64-linux-gnu/openmpi
 OPENMPI_LIB_PATH = $(OPENMPI_DIR)/lib/
@@ -210,39 +225,43 @@ else
   $(info ✗ MPI not found)
 endif
 
-# # Precision settings, default to bf16 but ability to override
-# PRECISION ?= BF16
-# VALID_PRECISIONS := FP32 FP16 BF16
-# ifeq ($(filter $(PRECISION),$(VALID_PRECISIONS)),)
-#   $(error Invalid precision $(PRECISION), valid precisions are $(VALID_PRECISIONS))
-# endif
-# ifeq ($(PRECISION), FP32)
-#   PFLAGS = -DENABLE_FP32
-# else ifeq ($(PRECISION), FP16)
-#   PFLAGS = -DENABLE_FP16
-# else
-#   PFLAGS = -DENABLE_BF16
-# endif
-
-PFLAGS = -DENABLE_BF16
+# Precision settings, default to bf16 but ability to override
+PRECISION ?= BF16
+VALID_PRECISIONS := FP32 FP16 BF16
+ifeq ($(filter $(PRECISION),$(VALID_PRECISIONS)),)
+  $(error Invalid precision $(PRECISION), valid precisions are $(VALID_PRECISIONS))
+endif
+ifeq ($(PRECISION), FP32)
+  PFLAGS = -DENABLE_FP32
+else ifeq ($(PRECISION), FP16)
+  PFLAGS = -DENABLE_FP16
+else
+  PFLAGS = -DENABLE_BF16
+endif
 
 # PHONY means these targets will always be executed
-.PHONY: all train_gpt2cu
+.PHONY: all train_gpt2 test_gpt2 train_gpt2cu test_gpt2cu train_gpt2fp32cu test_gpt2fp32cu profile_gpt2cu
 
 # Add targets
-TARGETS = train_gpt2cu
+TARGETS = train_gpt2 test_gpt2
 
 # Conditional inclusion of CUDA targets
 ifeq ($(NVCC),)
     $(info ✗ nvcc not found, skipping GPU/CUDA builds)
 else
     $(info ✓ nvcc found, including GPU/CUDA support)
-    TARGETS += train_gpt2cu $(NVCC_CUDNN)
+    TARGETS += train_gpt2cu test_gpt2cu train_gpt2fp32cu test_gpt2fp32cu $(NVCC_CUDNN)
 endif
 
 $(info ---------------------------------------------)
 
 all: $(TARGETS)
+
+train_gpt2: train_gpt2.c
+	$(CC) $(CFLAGS) $(INCLUDES) $(LDFLAGS) $^ $(LDLIBS) $(OUTPUT_FILE)
+
+test_gpt2: test_gpt2.c
+	$(CC) $(CFLAGS) $(INCLUDES) $(LDFLAGS) $^ $(LDLIBS) $(OUTPUT_FILE)
 
 $(NVCC_CUDNN): llmc/cudnn_att.cpp
 	$(NVCC) -c $(NVCC_FLAGS) $(PFLAGS) $^ $(NVCC_INCLUDES) -o $@
@@ -250,10 +269,17 @@ $(NVCC_CUDNN): llmc/cudnn_att.cpp
 train_gpt2cu: train_gpt2.cu $(NVCC_CUDNN)
 	$(NVCC) $(NVCC_FLAGS) $(PFLAGS) $^ $(NVCC_LDFLAGS) $(NVCC_INCLUDES) $(NVCC_LDLIBS) $(CUDA_OUTPUT_FILE)
 
+train_gpt2fp32cu: train_gpt2_fp32.cu
+	$(NVCC) $(NVCC_FLAGS) $^ $(NVCC_LDFLAGS) $(NVCC_INCLUDES) $(NVCC_LDLIBS) $(CUDA_OUTPUT_FILE)
 
-inference_gpt2cu: inference_gpt2.cu $(NVCC_CUDNN)
+test_gpt2cu: test_gpt2.cu $(NVCC_CUDNN)
 	$(NVCC) $(NVCC_FLAGS) $(PFLAGS) $^ $(NVCC_LDFLAGS) $(NVCC_INCLUDES) $(NVCC_LDLIBS) $(CUDA_OUTPUT_FILE)
 
+test_gpt2fp32cu: test_gpt2_fp32.cu
+	$(NVCC) $(NVCC_FLAGS) $^ $(NVCC_LDFLAGS) $(NVCC_INCLUDES) $(NVCC_LDLIBS) $(CUDA_OUTPUT_FILE)
+
+profile_gpt2cu: profile_gpt2.cu $(NVCC_CUDNN)
+	$(NVCC) $(NVCC_FLAGS) $(PFLAGS) -lineinfo $^ $(NVCC_LDFLAGS) $(NVCC_INCLUDES) $(NVCC_LDLIBS)  $(CUDA_OUTPUT_FILE)
 
 clean:
 	$(REMOVE_FILES) $(TARGETS)

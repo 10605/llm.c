@@ -1,0 +1,161 @@
+{
+  "integration_snapshot": "a6d85cb052cfe4d7aa6d7cd2719332f8852648bf",
+  "upstream_repository": "https://github.com/GatiAher/llm.c",
+  "upstream_branch": "mup",
+  "upstream_base_commit": "706b1a5fc94de4bc16a4a3684eafaad6b9e0dada",
+  "course_base_commit": "2a9c18ce34c99408aa5ce6a67149b428884452de",
+  "training_core_sha256": {
+    "train_gpt2.py": "1dfa1fc7fe56843a68a2e22b4513e1dd387d0a1d96f6af7ddfa2559db1c97092",
+    "Makefile": "c8198c9b961c45aa2d150d1384a59e03102efe49797c41b46ddcdda32760d1f5",
+    "train_gpt2.cu": "7b6cf722e4b87d27e27a7427fc80f4bda7d3d7cedba3007f64b0b57e6c7fd64d",
+    "llmc/utils.h": "20d19f234334cf030e6d9d2154c690a9eea4fa41b2701fa4f06e6498ad9aa904",
+    "llmc/fused_classifier.cuh": "64e591d812bc530b5bdba07eb6baa6c8ffaab4d3150276f6e5e58dc5ccc609f9",
+    "llmc/global_norm.cuh": "24ccc138bcb15d4755bd0e37371c29c79d586883e40af5a50e917c489f0e03b9",
+    "llmc/mfu.h": "ae11125a837b1c9ef6e3677d47cf20774466e0c8e0fe620aa57d3f72c54d4888",
+    "llmc/layernorm.cuh": "31ad7d8d082e90eb61726032b283f5297003ee0290cabc42a5ac6a02d1d75f1d",
+    "llmc/sampler.h": "06401eb36656617fb604b144a7ea89df0915c68226bf4d436f94a5daf2b68ac1",
+    "llmc/cudnn_att.cpp": "741443410b62f86135082db81e434d0c7f869449c818b3d9944a11c79ed85665",
+    "llmc/matmul.cuh": "242d2a0bee65a102954d912d99bf250c593fd8b24042ffec89c1f7dc7512297c",
+    "llmc/tokenizer.h": "0f578cbdb2ef7668fbae737af89d5ad876648bdd4fa6e399dfe96a9d481827b9",
+    "llmc/outlier_detector.h": "5c0a71a5f3e6bda91e11ec227423633dda3f4ad21d2b98ce0a0293d0b51996f0",
+    "llmc/dataloader.h": "66ff78fec30531d6f5e7220935ca81639933c4c1eff38f693c8f9627d4d6550a",
+    "llmc/cublas_common.h": "8b23a2da5768506fb02c110dc071cdf947b502397d6af71caf033e6ce25841cc",
+    "llmc/schedulers.h": "1f5dfc93b57009c0f154665f75b0764226e7f933c7856d3e8a6650f30cfd434c",
+    "llmc/adamw.cuh": "08a7ddbc007c092006a0ba096dc644fe12939eb793f323c3f02eb611fad24fbb",
+    "llmc/train_config.h": "dc64bcb07172bb490b44745a69647d819323be599bc1124ae9fbebc50efeaf65",
+    "llmc/cudnn_att.h": "c17a529b831276b338c914edcacb2b82df38fc6f4eb190c63125b0a55a6f9251",
+    "llmc/zero.cuh": "db46ddf5c15053d66cfa3679f79b895538a6b7a9ce7fe7f757f0400680607613",
+    "llmc/rand.h": "9e84fe1b2de5ae0031d52ecc61b31de8abd10cf1544ed8fde5c6a40d4d1d3a83",
+    "llmc/cuda_utils.cuh": "2c4bee5ab2ec6988b5dc3d70381b76043075e0344f7ce599f0fb86e0e028b78a",
+    "llmc/gelu.cuh": "9614d8f85d4bea71b0b827173db1ce5154f83d3de576ef170d50760ef5e520c4",
+    "llmc/logger.h": "52c1d996c3bc9006c6c36b5ba780994a8156380da162295cf2c133f9aab71ba8",
+    "llmc/cuda_common.h": "7b97d60bd96215ebd775556f53db185e8de6d9b42da6fc642fa37200d666a5cf",
+    "llmc/encoder.cuh": "4ea3be1fb9a2fe6099fae4ff0c9db9dd64d0d6fdd8fc1cd9357b6c191dfac232",
+    "llmc/attention.cuh": "70771f917f5185463e3086c1b6be0a94511b44735a9f438aa7c62cb3912cd36f"
+  },
+  "excluded_source_directories": [
+    ".github",
+    "20TPP_plots",
+    "20TPP_plots_range",
+    "model_log_loss",
+    "plots",
+    "test_logs",
+    "verbose_outputs"
+  ],
+  "note": "Import of committed code and documentation. Historical generated logs/plots, local credentials/data/checkpoints and unfinished experiments are excluded. Course packaging and student documentation are updated separately.",
+  "course_layout": "HW5_Code",
+  "replaced_legacy_tools": "The old separate SP-only inference source/binary and course upload/example scripts are not part of the validated muP codebase. Use the unified trainer and exercise commands.",
+  "training_core_sha256_scope": "Imported integration snapshot before the course-preset CLI changes; retained for historical experiment provenance.",
+  "current_training_core_sha256": {
+    "train_gpt2.py": "1dfa1fc7fe56843a68a2e22b4513e1dd387d0a1d96f6af7ddfa2559db1c97092",
+    "Makefile": "c8198c9b961c45aa2d150d1384a59e03102efe49797c41b46ddcdda32760d1f5",
+    "train_gpt2.cu": "36633058a6910497b1cc778103edbf72ad3ab6c309d892b98007d0100c6c171c",
+    "llmc/utils.h": "20d19f234334cf030e6d9d2154c690a9eea4fa41b2701fa4f06e6498ad9aa904",
+    "llmc/fused_classifier.cuh": "64e591d812bc530b5bdba07eb6baa6c8ffaab4d3150276f6e5e58dc5ccc609f9",
+    "llmc/global_norm.cuh": "24ccc138bcb15d4755bd0e37371c29c79d586883e40af5a50e917c489f0e03b9",
+    "llmc/mfu.h": "ae11125a837b1c9ef6e3677d47cf20774466e0c8e0fe620aa57d3f72c54d4888",
+    "llmc/layernorm.cuh": "31ad7d8d082e90eb61726032b283f5297003ee0290cabc42a5ac6a02d1d75f1d",
+    "llmc/sampler.h": "06401eb36656617fb604b144a7ea89df0915c68226bf4d436f94a5daf2b68ac1",
+    "llmc/cudnn_att.cpp": "741443410b62f86135082db81e434d0c7f869449c818b3d9944a11c79ed85665",
+    "llmc/matmul.cuh": "242d2a0bee65a102954d912d99bf250c593fd8b24042ffec89c1f7dc7512297c",
+    "llmc/tokenizer.h": "0f578cbdb2ef7668fbae737af89d5ad876648bdd4fa6e399dfe96a9d481827b9",
+    "llmc/outlier_detector.h": "5c0a71a5f3e6bda91e11ec227423633dda3f4ad21d2b98ce0a0293d0b51996f0",
+    "llmc/dataloader.h": "027b94c181dbdb0eca6919ab1c53d9f0564f11609beaa5f6cc6c9b88cd62105a",
+    "llmc/cublas_common.h": "8b23a2da5768506fb02c110dc071cdf947b502397d6af71caf033e6ce25841cc",
+    "llmc/schedulers.h": "1f5dfc93b57009c0f154665f75b0764226e7f933c7856d3e8a6650f30cfd434c",
+    "llmc/adamw.cuh": "08a7ddbc007c092006a0ba096dc644fe12939eb793f323c3f02eb611fad24fbb",
+    "llmc/train_config.h": "6df7874fefae33f1f653629f630c2a5cd608096458a6cc9ae470037b03be0351",
+    "llmc/cudnn_att.h": "c17a529b831276b338c914edcacb2b82df38fc6f4eb190c63125b0a55a6f9251",
+    "llmc/zero.cuh": "db46ddf5c15053d66cfa3679f79b895538a6b7a9ce7fe7f757f0400680607613",
+    "llmc/rand.h": "9e84fe1b2de5ae0031d52ecc61b31de8abd10cf1544ed8fde5c6a40d4d1d3a83",
+    "llmc/cuda_utils.cuh": "2c4bee5ab2ec6988b5dc3d70381b76043075e0344f7ce599f0fb86e0e028b78a",
+    "llmc/gelu.cuh": "9614d8f85d4bea71b0b827173db1ce5154f83d3de576ef170d50760ef5e520c4",
+    "llmc/logger.h": "52c1d996c3bc9006c6c36b5ba780994a8156380da162295cf2c133f9aab71ba8",
+    "llmc/cuda_common.h": "7b97d60bd96215ebd775556f53db185e8de6d9b42da6fc642fa37200d666a5cf",
+    "llmc/encoder.cuh": "4ea3be1fb9a2fe6099fae4ff0c9db9dd64d0d6fdd8fc1cd9357b6c191dfac232",
+    "llmc/attention.cuh": "70771f917f5185463e3086c1b6be0a94511b44735a9f438aa7c62cb3912cd36f"
+  },
+  "course_preset_update": {
+    "date": "2026-11-04",
+    "changed_training_core_files": [
+      "llmc/train_config.h",
+      "train_gpt2.cu"
+    ],
+    "default_parametrization": {
+      "mup": true,
+      "heads": 12,
+      "reference_width": 192,
+      "attention_multiplier": 4
+    },
+    "scope": "CUDA trainer CLI defaults, automatic full/early-stop token budgets and warmup, and configurable fresh-weight initialization seed; kernels and optimizer scaling unchanged.",
+    "validation": {
+      "host_controls": "17 groups passed with AddressSanitizer and UndefinedBehaviorSanitizer",
+      "gpu_run": "20261104T075450Z-course_preset",
+      "gpu_suite": "8 groups passed on Modal A10, CUDA 12.4.1, BF16, non-cuDNN",
+      "gpu_app_id": "ap-ucwn769PWk9Kavw1G8VCWe",
+      "gpu_app_final_state": "stopped; 0 tasks",
+      "token_early_stop": "Token/legacy stop weights and optimizer state match; exact resumed/uninterrupted state match with the full LR schedule retained."
+    },
+    "prior_validation": [
+      {
+        "host_controls": "15 groups passed with AddressSanitizer and UndefinedBehaviorSanitizer",
+        "host_initialization": "Passed initialization parity, course defaults, seed repeatability and checkpoint round trips",
+        "gpu_run": "20261104T074041Z-course_preset",
+        "gpu_suite": "7 groups passed on Modal A10, CUDA 12.4.1, BF16, non-cuDNN",
+        "gpu_app_id": "ap-YTa9PTZweAr9FPzF2MFDNw",
+        "gpu_app_final_state": "stopped; 0 tasks"
+      }
+    ]
+  },
+  "course_recipe_update": {
+    "date": "2026-11-04",
+    "context": 2048,
+    "target_parameters_unpadded": 125226240,
+    "target_20tpp_tokens": 2504524800,
+    "batch_tokens": 114688,
+    "batch_fit": {
+      "coefficient": 0.006130498046614271,
+      "exponent": 0.4199436828783816,
+      "units": "2048-token sequences",
+      "source": "Seed-42 three-point batch-study discovery fit",
+      "extrapolation_is_provisional": true
+    },
+    "schedule": "linear",
+    "warmup_fraction": 0.1,
+    "final_lr_fraction": 0,
+    "adamw_timescale": 0.1,
+    "decay_rule": "1 / (peak_base_lr * full_schedule_updates * timescale)",
+    "timescale_source": "All three purple-line discovery winners; provisional target setting, not a universal optimum",
+    "learning_rate_status": "6e-4 remains an untuned starter; five full-horizon proxy candidates prepared, not run",
+    "validation": {
+      "host_controls": "20 groups passed with ASan/UBSan, including plan-to-CLI equivalence",
+      "host_initialization": "SP parity, muP seed repeatability and 2048-capacity checkpoint round trip passed",
+      "gpu_run": "20261104T083447Z-course_preset",
+      "gpu_suite": "10 groups passed on A10, BF16, non-cuDNN",
+      "gpu_app_id": "ap-pXpdXpMkvMcFb7n8EP1brr",
+      "gpu_app_final_state": "stopped; 0 tasks",
+      "scope": "CLI/initialization, automatic decay vs explicit decay, exact resume, and one context-2048 update; no full-horizon sweep"
+    }
+  },
+  "student_defaults_update": {
+    "date": "2026-11-05",
+    "scope": "Course CUDA CLI defaults and help, student guide and homework tables; no changes to training kernels or checkpoint payloads. Historical hashes/validation above remain historical.",
+    "learning_rate": "Required explicit -l on every course-mode invocation, including resume; no seed LR default.",
+    "microbatch": 8,
+    "schedule_updates": 21838,
+    "warmup": "-1: floor(10% of full schedule), normally 2183",
+    "checkpoint_every": 1000,
+    "checkpoint_retention_intervals": 2,
+    "validation_every": 1000,
+    "validation_max_microbatches": 72,
+    "budget_overrides": "Explicit -x -1 requests one dataset epoch. Explicit -nt retains whole-global-batch rounding. -es/-et do not shorten the schedule.",
+    "legacy": "-cp 0 retains legacy defaults.",
+    "validation": {
+      "host_controls": "22 groups passed with ASan/UBSan; actual CLI parser extracted before CUDA startup",
+      "host_initialization": "SP parity, muP initialization and checkpoint round trips passed",
+      "seed_recipe": "6 groups passed, including actual trainer configuration for continuation endpoints",
+      "source_packaging": "Current and pinned upstream archives passed",
+      "gpu": "Not rerun for these CLI/default edits; earlier GPU results do not validate this new snapshot."
+    }
+  }
+}
