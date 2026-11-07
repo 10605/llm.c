@@ -44,14 +44,14 @@ SFT from nonzero chat-token embeddings; explicit modes are preferable for compar
 ## SFT
 
 ```bash
-SFT_LR=0.0001  # example; choose this for the SFT experiment
 python sft/chat_sft.py --model runs/expert/model_00021838.bin \
-  --out-dir runs/sft --lr "$SFT_LR" --device cuda \
+  --out-dir runs/sft --device cuda \
   --num-iterations 100 --num-train-convs 10000 \
   --eval-every 20 --sample-every 0
 ```
 
 SFT starts a fresh AdamW optimizer. It does not load pretraining optimizer state.
+The SFT learning rate defaults to `0.0001`; no LR choice is needed for this exercise.
 This example uses 10,000 conversations from SmolTalk for a short 100-update
 exercise. Defaults are microbatch 16 and 65,536 tokens/update. SFT sequence
 length defaults to 2048 and cannot exceed the checkpoint context. The total batch

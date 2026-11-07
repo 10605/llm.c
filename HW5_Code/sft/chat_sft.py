@@ -7,7 +7,7 @@ the loss restricted to assistant tokens, and writes the result back as an llm.c 
 plus a main.log / run_parameters.txt that vislog.ipynb can plot.
 
     python sft/chat_sft.py --model runs/expert/model_00021838.bin \
-        --out-dir runs/sft --lr 0.0001 --num-iterations 100
+        --out-dir runs/sft --num-iterations 100
 """
 
 import argparse
