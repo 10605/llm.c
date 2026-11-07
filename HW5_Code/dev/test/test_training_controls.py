@@ -126,6 +126,7 @@ struct GPT2 {
            model.config.num_layers, model.config.channels, model.config.num_heads, model.use_mup,
            model.mup_width_mult, model.mup_base_attn_mult, model.mup_reference_width, start_step, stop, val_max_steps);
     printf("train=%s val=%s tokenizer=%s hellaswag=%s\n", train_data_pattern, val_data_pattern, tokenizer_path, hellaswag_path);
+    printf("val2=%s\n", val2_data_pattern ? val2_data_pattern : "disabled");
     printf("preset=%d seed=%d batch_tokens=%d schedule_steps=%d schedule_tokens=%lld warmup=%d lr=%g decay=%g final=%g\n",
            course_preset, model_options.initialization_seed, batch_tokens, schedule_steps,
            (long long)schedule_steps*batch_tokens, warmup_iterations, learning_rate, weight_decay, final_learning_rate_frac);
@@ -162,7 +163,8 @@ struct GPT2 {
         self.assertIn('layers=12 channels=768 heads=12 mup=1 mm=4 ma=4 ref=192', out)
         self.assertIn('preset=1 seed=42 batch_tokens=114688 schedule_steps=21838 schedule_tokens=2504556544 warmup=2183 lr=0.002', out)
         self.assertIn('context=2048 capacity=2048 scheduler=linear tau=0.1', out)
-        self.assertIn('train=data/pretraining/climbmix_students_train_*.bin val=data/seed-validation-v1/balanced_*.bin tokenizer=data/gpt2_tokenizer.bin', out)
+        self.assertIn('train=data/pretraining/climbmix_students_train_*.bin val=data/pretraining/climbmix_students_val_*.bin tokenizer=data/gpt2_tokenizer.bin', out)
+        self.assertIn('val2=disabled', out)
         for width in [48,96,192,384,768]:
             out = self.run_cli('-l','.002','-1c',width,'-x',100,legacy=False)
             self.assertIn(f'channels={width} heads=12 mup=1 mm={width/192:g} ma=4 ref=192',out)
@@ -201,6 +203,14 @@ struct GPT2 {
         self.assertIn('schedule_steps=21838', resumed)
         self.run_cli('-l', '.002', '-rd', 1, legacy=False, ok=False)
         self.assertIn('warmup=200', self.run_cli('-l', '.002', '-x', 2000, legacy=False))
+
+    def test_optional_second_validation(self):
+        out = self.run_cli('-l', '.002', '-iv', 'data/expert/*val*.bin',
+                           '-iv2', 'data/pretraining/*val*.bin', legacy=False)
+        self.assertIn('val=data/expert/*val*.bin', out)
+        self.assertIn('val2=data/pretraining/*val*.bin', out)
+        self.assertIn('-iv2', self.run_cli('--help'))
+        self.run_cli('-iv2', ok=False)
 
     def test_course_overrides_and_legacy_order(self):
         for flags in [('-cp',0,'-l','.002'),('-l','.002','-cp',0)]:

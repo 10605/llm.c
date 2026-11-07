@@ -65,7 +65,8 @@ and parametrization. No μP flags are needed in ordinary student commands.
 Default paths, relative to the trainer's working directory:
 
 - Training: `data/pretraining/climbmix_students_train_*.bin` (`-id`).
-- General validation: `data/seed-validation-v1/balanced_*.bin` (`-iv`).
+- Pretraining-mix validation: `data/pretraining/climbmix_students_val_*.bin` (`-iv`), supplied by HF and included in the AMI.
+- Optional second validation: `-iv2 PATTERN`; expert runs use the cluster validation with `-iv` and pretraining-mix validation with `-iv2`. Both use the same `-v` interval and `-m` batch limit, sampled across the supplied HF validation split.
 - Tokenizer: `data/gpt2_tokenizer.bin` (`-it`).
 
 Prepare or download these files first. Quote shard globs. Set `-id` to your

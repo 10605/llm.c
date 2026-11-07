@@ -18,6 +18,31 @@ seed. `-cp 0` restores legacy defaults for the upstream instructions below;
 explicit flags override either preset. Checkpoints retain saved architecture and
 parametrization. CPU/FP32-reference and Python trainers retain their own defaults.
 
+For the prepared course AMI, start with `~/hw5/START-HERE.md`. Part 1 uses the
+included HF pretraining training and validation files in `data/pretraining`.
+For Part 2, download your selected cluster with `bash scripts/download-cluster.sh cluster_XX`
+and link it with `ln -sfnT downloads/llmc/cluster_XX data/expert`. Create each
+expert trial with `python prepare_expert.py runs/expert`, then resume it using
+`-y 1 -rd 1` for the initial dataset switch and your explicit `-l LR`.
+Use `-y 1` without `-rd 1` for later resumes of the same dataset.
+Pass `-id 'data/expert/*train*.bin' -iv 'data/expert/*val*.bin'
+-iv2 'data/pretraining/*val*.bin'` on both commands to record cluster and
+pretraining-mix validation separately. Both validation paths use HF's supplied
+validation files; `-v` and `-m` apply to each. Omit `-iv2` for one validation curve.
+
+Logs remain under the selected `-o` directory: `main.log` contains metrics and
+`run_parameters.txt` contains effective settings. Use
+`python plot_logs.py runs/expert --output plots/expert.png` or `../vislog.ipynb`
+for CUDA and SFT plots. `upload_to_s3.py BUCKET RUN GROUP` uploads logs to
+`experiments/GROUP/RUN/`; add `--include-checkpoints` to back up weights and
+optimizer state. `download_logs.py BUCKET GROUP --dest downloaded_logs` retrieves
+logs only. These optional S3 helpers use the standard AWS credentials provider
+(instance role or local profile), never keys pasted into a notebook.
+
+For the SFT section, see [SFT and single-sequence generation](sft/README.md).
+The [instructor AMI guide](doc/mup/aws-ami.md) covers the g5 environment, seed
+installation, data preparation and checks before sharing the image.
+
 This snapshot includes the corrected μP gradient scaling, random tied embeddings,
 zero query initialization, configurable training controls, and reproduction tools.
 See [provenance](doc/mup/source-provenance.json),

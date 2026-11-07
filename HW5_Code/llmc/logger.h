@@ -47,6 +47,14 @@ void logger_log_val(Logger *logger, int step, float val_loss) {
     }
 }
 
+void logger_log_val_secondary(Logger *logger, int step, float val_loss) {
+    if (logger->active == 1) {
+        FILE *logfile = fopenCheck(logger->output_log_file, "a");
+        fprintf(logfile, "s:%d tel2:%.4f\n", step, val_loss);
+        fcloseCheck(logfile);
+    }
+}
+
 void logger_log_train(Logger *logger, int step, float train_loss, float learning_rate, float grad_norm) {
     if (logger->active == 1) {
         FILE *logfile = fopenCheck(logger->output_log_file, "a");

@@ -87,7 +87,13 @@ selection is an explicit build choice. Training kernels are unchanged by these
 CLI-default updates.
 
 Course paths are `data/pretraining/climbmix_students_train_*.bin`,
-`data/seed-validation-v1/balanced_*.bin` and `data/gpt2_tokenizer.bin`.
+`data/pretraining/climbmix_students_val_*.bin` and `data/gpt2_tokenizer.bin`.
+The prepared AMI includes the HF pretraining training and validation shards.
+For expert runs, use `-iv 'data/expert/*val*.bin'` and the optional
+`-iv2 'data/pretraining/*val*.bin'` to evaluate both HF validation datasets at
+each validation checkpoint. The fixed `-m` sample spans the whole split.
+`-v` and `-m` apply to both; the second metric is
+logged as `tel2` in `main.log` and appears in the shared plotter and notebook.
 `-cp 0` preserves legacy defaults: SP, checkpoint input, TinyShakespeare paths,
 tokenizer `gpt2_tokenizer.bin`, microbatch 4, automatic global batch, one-epoch
 horizon, optional LR default 3e-4, no warmup, final fraction 1, fixed decay 0,

@@ -18,6 +18,7 @@ GPT-2 Transformer Neural Net training loop. See README.md for usage.
 // defines: dataloader_init, dataloader_reset, dataloader_next_batch, dataloader_free
 // defines: evalloader_init, evalloader_reset, evalloader_next_batch, evalloader_free
 #include "llmc/dataloader.h"
+#include "llmc/validation.h"
 // defines: manual_seed, normal_ (same as torch.manual_seed and torch.normal)
 #include "llmc/rand.h"
 // defines: lr_scheduler_init, get_learning_rate
@@ -1430,7 +1431,8 @@ void error_usage(int status=EXIT_FAILURE) {
     fprintf(stderr, "  -cp <int>   course preset: 1 (default); 0 restores legacy defaults before explicit overrides\n");
     // file system input / output
     fprintf(stderr, "  -i <string> train data filename pattern (default = data/pretraining/climbmix_students_train_*.bin)\n");
-    fprintf(stderr, "  -j <string> val data filename pattern (default = data/seed-validation-v1/balanced_*.bin)\n");
+    fprintf(stderr, "  -j <string> val data filename pattern (default = data/pretraining/climbmix_students_val_*.bin)\n");
+    fprintf(stderr, "  -iv2 <string> optional second validation pattern; same -v/-m, logged separately (default disabled)\n");
     fprintf(stderr, "  -e <string> input .bin filename or descriptor (default = d12, random initialization)\n");
     fprintf(stderr, "  -o <string> output log dir (default = NULL, no logging)\n");
     fprintf(stderr, "  -lg <int>   log gpu info every x steps (default = -1; disabled)\n");
@@ -1472,7 +1474,7 @@ void error_usage(int status=EXIT_FAILURE) {
     fprintf(stderr, "  -mw <int> muP coordinate check current width (default 256)\n");
     // evaluation
     fprintf(stderr, "  -v <int>    validation interval in updates (default 1000; also evaluate at stop)\n");
-    fprintf(stderr, "  -m <int>    maximum validation microbatches (default 72; -1 uses all available)\n");
+    fprintf(stderr, "  -m <int>    max validation microbatches across each split (default 72; -1 uses all complete batches)\n");
     fprintf(stderr, "  -s <int>    sample_every, how often we inference the model (default = 0, disabled)\n");
     fprintf(stderr, "  -g <int>    genT, how many steps of inference we do (default = 64)\n");
     fprintf(stderr, "  -h <int>    hellaswag eval run? (default = 0)\n");
@@ -1505,7 +1507,8 @@ int main(int argc, char *argv[]) {
     // read in the (optional) command line arguments
     const int course_preset = course_preset_from_args(argc, argv);
     const char* train_data_pattern = course_preset ? "data/pretraining/climbmix_students_train_*.bin" : "dev/data/tinyshakespeare/tiny_shakespeare_train.bin";
-    const char* val_data_pattern = course_preset ? "data/seed-validation-v1/balanced_*.bin" : "dev/data/tinyshakespeare/tiny_shakespeare_val.bin";
+    const char* val_data_pattern = course_preset ? "data/pretraining/climbmix_students_val_*.bin" : "dev/data/tinyshakespeare/tiny_shakespeare_val.bin";
+    const char* val2_data_pattern = NULL;
     const char* load_filename = course_preset ? "d12" : "gpt2_124M_bf16.bin";
     const char* tokenizer_path = course_preset ? "data/gpt2_tokenizer.bin" : "gpt2_tokenizer.bin";
     const char* hellaswag_path = "dev/data/hellaswag/hellaswag_val.bin";
@@ -1565,7 +1568,7 @@ int main(int argc, char *argv[]) {
         if (strcmp(argv[i], "--help") == 0) { error_usage(EXIT_SUCCESS); }
         if (i + 1 >= argc) { error_usage(); } // must have arg after flag
         if (argv[i][0] != '-') { error_usage(); } // must start with dash
-        if (!(strlen(argv[i]) == 2 || strlen(argv[i]) == 3)) { error_usage(); } // must be -x[y] (one dash, one or two letters)
+        if (!(strlen(argv[i]) >= 2 && strlen(argv[i]) <= 4)) { error_usage(); }
         // read in the args
         if (strcmp(argv[i], "-cp") == 0) { /* resolved before applying explicit overrides */ }
         else if (strcmp(argv[i], "-i") == 0) { train_data_pattern = argv[i+1]; }
@@ -1617,6 +1620,7 @@ int main(int argc, char *argv[]) {
         else if (strcmp(argv[i], "-mw") == 0) { mup_coord_check_width = parse_int(argv[i], argv[i+1]); model_options.coord_width_set = true; }
         else if (strcmp(argv[i], "-id") == 0) { train_data_pattern = argv[i+1]; }
         else if (strcmp(argv[i], "-iv") == 0) { val_data_pattern = argv[i+1]; }
+        else if (strcmp(argv[i], "-iv2") == 0) { val2_data_pattern = argv[i+1]; }
         else if (strcmp(argv[i], "-it") == 0) { tokenizer_path = argv[i+1]; }
         else if (strcmp(argv[i], "-ih") == 0) { hellaswag_path = argv[i+1]; }
         else if (strcmp(argv[i], "-ss") == 0) { start_step = parse_int(argv[i], argv[i+1]); }
@@ -1782,23 +1786,25 @@ int main(int argc, char *argv[]) {
 
     // build DataLoaders for both train and val
     int permute_train_loader = (overfit_single_batch == 1) ? 0 : 1;
-    DataLoader train_loader, val_loader;
+    DataLoader train_loader, val_loader, val2_loader;
     dataloader_init(&train_loader, train_data_pattern, B, T, multi_gpu_config.process_rank, multi_gpu_config.num_processes, permute_train_loader);
     dataloader_init(&val_loader, val_data_pattern, B, T, multi_gpu_config.process_rank, multi_gpu_config.num_processes, 0);
+    if (val2_data_pattern) {
+        dataloader_init(&val2_loader, val2_data_pattern, B, T, multi_gpu_config.process_rank, multi_gpu_config.num_processes, 0);
+    }
     // figure out the number of training steps we will run for
     int train_num_batches = resolve_training_steps(max_steps, token_budget, train_loader.num_tokens, total_batch_size);
     int resolved_early_stop = resolve_early_stop_steps(early_stopping_steps, early_stopping_tokens,
                                                      token_budget, train_num_batches, total_batch_size);
     warmup_iterations = resolve_warmup(warmup_iterations, train_num_batches, lr_scheduler_type);
     weight_decay = resolve_weight_decay(weight_decay, weight_decay_timescale, learning_rate, train_num_batches);
-    // figure out the number of validation steps to run for
-    int val_num_batches = val_max_steps; // passed in from command line
-    if (val_num_batches == -1) {
-        // sensible default is to evaluate the full validation split
-        size_t ntok = val_loader.num_tokens;
-        // note that unlike the training loop, there is no gradient accumulation inner loop here
-        val_num_batches = ntok / tokens_per_fwdbwd;
-    }
+    // Use the same fixed sample across the split at every evaluation. This avoids
+    // measuring only the first cluster when HF validation shards are concatenated.
+    ValidationPlan val_plan = validation_plan_init(&val_loader, val_max_steps, course_preset);
+    ValidationPlan val2_plan = {};
+    if (val2_data_pattern) { val2_plan = validation_plan_init(&val2_loader, val_max_steps, course_preset); }
+    int val_num_batches = val_plan.count;
+    int val2_num_batches = val2_plan.count;
     printf0("| train_num_batches     | %-50d |\n", train_num_batches);
     printf0("| resolved warmup       | %-50d |\n", warmup_iterations);
     printf0("| weight decay          | %-50e |\n", weight_decay);
@@ -1876,6 +1882,10 @@ int main(int argc, char *argv[]) {
         fprintf(run_log, "\ncommand:");
         for (int i = 0; i < argc; i++) { fprintf(run_log, " %s", argv[i]); }
         fprintf(run_log, "\ntrain=%s\nvalidation=%s\ntokenizer=%s\nhellaswag=%s\n", train_data_pattern, val_data_pattern, tokenizer_path, hellaswag_path);
+        fprintf(run_log, "validation_secondary=%s\nval2_batches=%d\n", val2_data_pattern ? val2_data_pattern : "disabled", val2_num_batches);
+        fprintf(run_log, "validation_sampling=%s\nvalidation_shards=%zu\nvalidation_secondary_shards=%zu\n",
+                course_preset ? "evenly_spaced_complete_batches" : "prefix", val_loader.glob_result.gl_pathc,
+                val2_data_pattern ? val2_loader.glob_result.gl_pathc : 0);
         fprintf(run_log, "layers=%d channels=%d heads=%d max_seq_len=%d parameters=%zu\n", model.config.num_layers, model.config.channels, model.config.num_heads, model.config.max_seq_len, model.num_parameters);
         fprintf(run_log, "mup=%d width_mult=%.9g reference_width=%.9g attention_mult=%.9g\n", model.use_mup, model.mup_width_mult, model.mup_reference_width, model.mup_base_attn_mult);
         fprintf(run_log, "course_preset=%d requested_tokens=%lld schedule_tokens=%lld\n", course_preset, token_budget, (long long)train_num_batches * total_batch_size);
@@ -1942,13 +1952,25 @@ int main(int argc, char *argv[]) {
             float val_loss = 0.0f;
             dataloader_reset(&val_loader);
             for (int i = 0; i < val_num_batches; i++) {
-                dataloader_next_batch(&val_loader);
+                validation_load_batch(&val_loader, &val_plan, i);
                 val_loss += gpt2_validate(&model, val_loader.inputs, val_loader.targets, B, T);
             }
             val_loss /= val_num_batches;
             val_loss = multi_gpu_cpu_float_sum(val_loss, &multi_gpu_config) / multi_gpu_config.num_processes;
             printf0("val loss %f\n", val_loss);
             logger_log_val(&logger, step, val_loss);
+            if (val2_data_pattern) {
+                float val2_loss = 0.0f;
+                dataloader_reset(&val2_loader);
+                for (int i = 0; i < val2_num_batches; i++) {
+                    validation_load_batch(&val2_loader, &val2_plan, i);
+                    val2_loss += gpt2_validate(&model, val2_loader.inputs, val2_loader.targets, B, T);
+                }
+                val2_loss /= val2_num_batches;
+                val2_loss = multi_gpu_cpu_float_sum(val2_loss, &multi_gpu_config) / multi_gpu_config.num_processes;
+                printf0("second val loss %f\n", val2_loss);
+                logger_log_val_secondary(&logger, step, val2_loss);
+            }
         }
 
         // once in a while estimate HellaSwag accuracy (all processes collaborate)
@@ -2123,6 +2145,9 @@ int main(int argc, char *argv[]) {
     if (run_hellaswag) { evalloader_free(&eval_loader); }
     dataloader_free(&train_loader);
     dataloader_free(&val_loader);
+    validation_plan_free(&val_plan);
+    validation_plan_free(&val2_plan);
+    if (val2_data_pattern) { dataloader_free(&val2_loader); }
     tokenizer_free(&tokenizer);
     free(cpu_logits_raw);
     free(cpu_logits);
